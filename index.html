@@ -233,7 +233,7 @@ details[open] { display: flex; flex-direction: column; gap: 8px; }
     <ul class="rules">
       <li>한 판에 <b>2~6명</b>이 옆으로 긴 픽셀 눈밭(가로 120칸)에서 <b>4분</b> 동안 눈싸움을 해요. 체력 <b>100</b>, 눈덩이 한 개에 <b>20</b> 피해.</li>
       <li>눈덩이는 <b>문제를 맞혀야</b> 생겨요. 외항·내항 <b>⚪+2</b> · □ 구하기·비례식 찾기 <b>⚪+3</b> · 어려운 문제 <b>⚪+4</b> (최대 12개).</li>
-      <li>문제 창은 늘 열려 있어요. <b>움직이면서</b> 풀 수 있어요. 틀리면 <b>눈덩이 1개가 없어지고</b>(눈덩이가 0개면 <b>2초 동안 못 움직여요</b>). <b>30초 동안 문제를 하나도 풀지 않으면 3초 동안 얼어요</b>(20초가 지나면 알려 줘요). 풀이를 <b>3초</b> 보고 다음 문제로 넘어가요.</li>
+      <li>문제 창은 늘 열려 있어요. <b>움직이면서</b> 풀 수 있어요. 틀리면 <b>눈덩이 1개가 없어지고</b>(눈덩이가 0개면 <b>2초 동안 못 움직여요</b>). <b>20초 동안 문제를 하나도 풀지 않으면 3초 동안 얼어요</b>(10초가 지나면 알려 줘요). 풀이를 <b>3초</b> 보고 다음 문제로 넘어가요.</li>
       <li>체력이 0이 되면 <b>3초 동안 꽁꽁</b> 얼어요. 꽁꽁인 동안에도 문제는 풀 수 있고, 풀리면 체력 100으로 다시 뛰어요(2초 보호).</li>
       <li>점수 = 맞힌 눈덩이 <b>×10</b> + 꽁꽁 만든 친구 <b>×30</b>. 4분이 끝나면 점수 순으로 순위를 정해요.</li>
       <li><b>3문제를 연달아</b> 맞히면 아이템! 🛡️ 얼음 방패 +40 · ☕ 핫초코 회복 +40 · 🌕 왕눈덩이 3개(피해 ×1.5) · 🛷 썰매 신발 8초</li>
@@ -820,8 +820,17 @@ var FBNet = (function () {
   function download(name, text) {
     try { var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000); } catch (e) {}
   }
+  // 위치 기록은 기다리지 않고 바로 보내고(0.1초마다), 친구 기록은 받는 즉시 화면이 매 프레임 읽어 가요.
+  function pushState(code, sid, k) {
+    try { var D = db(); code = code_(code); sid = clean(sid, 40); k.st = D.now(); if (Live.code === code) Live.st[sid] = k; D.set('st/' + code + '/' + sid, k).catch(function () {}); } catch (e) {}
+  }
+  function peers(code) {
+    code = code_(code);
+    if (Live.code !== code || !Live.room) return null;
+    return Live.room.p.map(function (q) { var s = Live.st[q.sid]; return s ? { p: arr(s.p).map(arr), s: arr(s.s).map(arr), ok: s.ok | 0, f: s.f | 0, st: s.st } : null; });
+  }
   return {
-    delay: 450, syncMs: 180,
+    delay: 450, syncMs: 180, pushState: pushState, peers: peers,
     call: function (fn, arg) {
       if (!F[fn]) return Promise.reject(new Error('없는 기능: ' + fn));
       try { db(); } catch (e) { return Promise.reject(e); }
@@ -862,7 +871,7 @@ var COLD = ['#a3163c', '#1650a8', '#13784a', '#a87b00', '#5f2fb8', '#b2541a'];
 var DOT = ['🔴', '🔵', '🟢', '🟡', '🟣', '🟠'];
 var AMMO = { 1: 2, 2: 3, 3: 4 }, AMMO_MAX0 = 12, AMMO_START0 = 2;   // 맞히면 생기는 눈덩이(개)
 var QTAG = { 1: '⭐ 외항·내항 · ⚪+2', 2: '⭐⭐ 비례식의 성질 · ⚪+3', 3: '⭐⭐⭐ 도전 · ⚪+4' };
-var STUN_T = 2, IDLE_T = 30, IDLE_FZ = 3, IDLE_WARN = 20,   // 30초 동안 문제를 안 풀면 3초 얼음(20초부터 알려 줘요)
+var STUN_T = 2, IDLE_T = 20, IDLE_FZ = 3, IDLE_WARN = 10,   // 20초 동안 문제를 안 풀면 3초 얼음(10초부터 알려 줘요)
   WRONG_LOCK = 3, OK_SHOW = 0.6, STREAK_ITEM = 3;
 var TW = 120, TH = 15, TILE = 16;                                     // 눈밭: 가로 120칸 × 세로 15칸
 var PW = 0.7, PH = 1.4;                                               // 몸 크기(칸)
@@ -1137,7 +1146,7 @@ function newGame(mode, names, myIdx, net, start, lv, t0s, seed, ups, ps) {
     mode: mode, me: myIdx, net: net, lv: lv, start: start, t0s: t0s || start, over: false, ending: false, seed: seed, map: map, S: S,
     pl: null, balls: [], fx: [], parts: [], feed: [], deck: shuffle(Q.map(function (x, i) { return i; })),
     qi: -1, q: null, ok: 0, nq: 0, wrongs: [], kills: 0,
-    fid: 0, contig: 0, pend: {}, seen: {}, sendP: [], sendS: [], lastRec: 0, srvDone: false, count: 9, camX: null, flash: 0, lastLife: RULE.HP
+    fid: 0, contig: 0, pend: {}, seen: {}, sendP: [], sendS: [], lastRec: 0, lags: [], delay: DELAY, delayT: 0, srvDone: false, count: 9, camX: null, flash: 0, lastLife: RULE.HP
   };
   G.pl = names.map(function (n, i) { return newPl(i, n, mode === 'cpu' && i !== myIdx, map.sp[i], S); });
   G.pl.forEach(function (p) { if (p.bot) p.qT = rnd(BOT[lv].t[0], BOT[lv].t[1]); });
@@ -1504,11 +1513,12 @@ function update(dt) {
       tickQ();
     }
     G.pl.forEach(function (q) { if (q.bot) stepBot(q, dt); });
-    if (G.mode === 'net' && now - G.lastRec >= 90) {
+    if (G.mode === 'net' && now - G.lastRec >= 60) {
       G.lastRec = now;
       G.sendP.push([p.x, p.y, p.face > 0 ? 0 : Math.PI, now]);
       if (G.sendP.length > 24) G.sendP.shift();
     }
+    if (G.mode === 'net') pushTick(now);
   }
   // 꽁꽁 확인: 이 기기에서 움직이는 사람은 풀리면 다시 뛰어요.
   G.pl.forEach(function (q) {
@@ -1544,7 +1554,7 @@ function stepStorm(dt) {
     if (Math.random() < dt * 8) G.parts.push({ x: pxOf(q) + rnd(-0.4, 0.4), y: pyOf(q) + rnd(0.2, 1.3), vx: st.dir * 6, vy: 0.5, life: 0.4, col: '#bfefff' });
   });
 }
-// 30초 동안 문제를 하나도 안 풀면(맞히든 틀리든) 3초 동안 얼어요. 시간은 실제 시계로 세요(꽁꽁이 풀리자마자 얼 수도 있어요).
+// 20초 동안 문제를 하나도 안 풀면(맞히든 틀리든) 3초 동안 얼어요. 시간은 실제 시계로 세요(꽁꽁이 풀리자마자 얼 수도 있어요).
 function stepIdle(p, dt, now) {
   if (!G.lastAns) G.lastAns = now;
   if (p.idle > 0) { G.idleLeft = null; return; }
@@ -1554,7 +1564,7 @@ function stepIdle(p, dt, now) {
   if (left <= 0) {
     p.stun = 0; p.idle = IDLE_FZ; p.vx = 0; G.lastAns = now + IDLE_FZ * 1000; G.idleWarned = false; G.idleLeft = null;
     splat(p.x, p.y + 0.8, '#bfefff', 16); beep('hit');
-    toast('🧊 30초 동안 문제를 안 풀어서 3초 동안 얼었어요!', 2.5);
+    toast('🧊 20초 동안 문제를 안 풀어서 3초 동안 얼었어요!', 2.5);
   }
 }
 function stepParts(dt) {
@@ -2080,8 +2090,10 @@ function syncTick() {
   var arg = { code: S.code, sid: SID }, inGame = G && G.mode === 'net' && !G.over, t0 = Date.now(), nP = 0, nS = 0;
   if (inGame) {
     var p = me();
-    nP = G.sendP.length; nS = G.sendS.length;
     arg.since = G.contig;
+  }
+  if (inGame && !Net.pushState) {
+    nP = G.sendP.length; nS = G.sendS.length;
     var recs = G.sendP.length ? G.sendP : [[p.x, p.y, p.face > 0 ? 0 : Math.PI, t0]];
     arg.k = {
       p: recs.map(function (r) { var a = Math.atan2(Math.sin(r[2]), Math.cos(r[2])); return [cm(r[0]), cm(r[1]), Math.round(a * 100), Math.max(0, t0 - r[3])]; }),
@@ -2108,13 +2120,20 @@ function netRecv(r) {
   if (!G.ending && r.startAt) { G.t0s = r.startAt + r.lead; G.start = G.t0s - Sync.off; }
   if (r.ps && (r.ps.v || 0) >= (G.S.v || 0)) G.S = r.ps;
   (r.fires || []).forEach(recvEvent);
-  (r.ks || []).forEach(function (k, i) {
+  recvKs(r.ks);
+  if (r.ps && r.ps.end) G.srvDone = true;
+  if (r.now > r.startAt + r.lead + r.dur + r.grace + 300) G.srvDone = true;
+}
+// 친구 위치·던진 눈덩이 기록 받기(같은 기록이 여러 번 와도 시각으로 한 번만 써요)
+function recvKs(ks) {
+  var now = sNow();
+  (ks || []).forEach(function (k, i) {
     var p = G.pl[i]; if (!k || !p || i === G.me) return;
     p.ok = k.ok | 0; p.f = k.f | 0;
     var last = p.samples.length ? p.samples[p.samples.length - 1].t : 0;
     (k.p || []).forEach(function (s) {
       var t = k.st - s[3];
-      if (t > last + 1) { p.samples.push({ t: t, x: s[0] / 100, y: s[1] / 100, a: s[2] / 100 }); last = t; }
+      if (t > last + 1) { p.samples.push({ t: t, x: s[0] / 100, y: s[1] / 100, a: s[2] / 100 }); last = t; G.lags.push(now - t); if (G.lags.length > 80) G.lags.shift(); }
     });
     if (p.samples.length > 60) p.samples.splice(0, p.samples.length - 60);
     (k.s || []).forEach(function (s) {
@@ -2122,19 +2141,43 @@ function netRecv(r) {
       if (t > p.lastShotT + 1) { p.shots.push({ t: t, x: s[0] / 100, y: s[1] / 100, v: [s[2] / 100, s[3] / 100], big: s[6] }); p.lastShotT = t; }
     });
   });
-  if (r.ps && r.ps.end) G.srvDone = true;
-  if (r.now > r.startAt + r.lead + r.dur + r.grace + 300) G.srvDone = true;
 }
-// 친구 모습: 조금 전 위치 기록 사이를 이어 그리고, 그때 던진 눈덩이를 띄워요.
+// 내 위치(최근 0.7초)와 던진 눈덩이(최근 2초)를 0.1초마다 보내요. 겹쳐 보내도 받는 쪽이 시각으로 걸러요.
+function pushTick(now) {
+  if (!Net || !Net.pushState || !G.net || now - (G.pushAt || 0) < 100) return;
+  G.pushAt = now;
+  var p = me(), recs = G.sendP.filter(function (r) { return now - r[3] < 700; });
+  if (!recs.length) recs = [[p.x, p.y, p.face > 0 ? 0 : Math.PI, now]];
+  G.sendS = G.sendS.filter(function (r) { return now - r[5] < 2000; });
+  Net.pushState(G.net.code, SID, {
+    p: recs.map(function (r) { return [cm(r[0]), cm(r[1]), r[2] > 1 ? 314 : 0, Math.max(0, now - r[3])]; }),
+    s: G.sendS.map(function (r) { return [cm(r[0]), cm(r[1]), cm(r[2]), cm(r[3]), cm(r[4]), Math.max(0, now - r[5]), r[6]]; }),
+    ok: G.ok, f: flagsOf(p)
+  });
+}
+// 친구 기록이 오는 데 걸리는 시간을 재서, 끊기지 않을 만큼만 늦춰 보여 줘요(0.15~1.2초).
+function netDelay(dt) {
+  if (G.lags.length >= 8 && Date.now() - (G.lagAt || 0) > 500) {
+    G.lagAt = Date.now();
+    var a = G.lags.slice().sort(function (x, y) { return x - y; }), p90 = a[Math.floor(a.length * 0.9)];
+    G.delayT = clamp(p90 + 80, 150, 1200);
+  }
+  G.delay += ((G.delayT || G.delay) - G.delay) * Math.min(1, dt * 0.7);
+}
+// 친구 모습: 조금 전 위치 기록 사이를 이어 그리고, 그때 던진 눈덩이를 띄워요. 기록이 늦으면 0.15초까지는 같은 빠르기로 이어 가요.
 function interpPeers(dt) {
-  var rt = sNow() - DELAY;
+  if (Net && Net.peers && G.net) recvKs(Net.peers(G.net.code));
+  netDelay(dt);
+  var rt = sNow() - G.delay;
   G.pl.forEach(function (q) {
     if (q.i === G.me) return;
     var s = q.samples;
     if (s.length) {
       var j = 0; while (j < s.length - 1 && s[j + 1].t <= rt) j++;
       var A = s[j], B2 = s[Math.min(j + 1, s.length - 1)], u = B2.t > A.t ? clamp((rt - A.t) / (B2.t - A.t), 0, 1) : 0;
-      var nx = lerp(A.x, B2.x, u), ny = lerp(A.y, B2.y, u), dd = Math.abs(nx - q.rx) + Math.abs(ny - q.ry);
+      var nx = lerp(A.x, B2.x, u), ny = lerp(A.y, B2.y, u);
+      if (rt > B2.t && s.length >= 2) { var P = s[s.length - 2], L = s[s.length - 1], gap = L.t - P.t, ex = Math.min(150, rt - L.t); if (gap > 0 && gap < 400 && Math.abs(L.x - P.x) + Math.abs(L.y - P.y) < 2) { nx = L.x + (L.x - P.x) / gap * ex; ny = L.y + (L.y - P.y) / gap * ex; } }
+      var dd = Math.abs(nx - q.rx) + Math.abs(ny - q.ry);
       var kk = Math.min(1, dt * 10);
       if (dd < 3) { q.vx = lerp(q.vx, (nx - q.rx) / Math.max(dt, 1e-3), kk); q.vy = lerp(q.vy, (ny - q.ry) / Math.max(dt, 1e-3), kk); } else { q.vx = q.vy = 0; }
       q.moving = Math.abs(q.vx) > 0.4 && dd < 3; if (q.moving) q.walk += Math.abs(nx - q.rx) * 1.6;
