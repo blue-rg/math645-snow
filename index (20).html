@@ -1,0 +1,2384 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>비례식 픽셀 눈싸움</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Jua&display=swap">
+<script src="lib/firebase-app-compat.js"></script>
+<script src="lib/firebase-database-compat.js"></script>
+<script src="firebase-config.js"></script>
+<style>
+/* 한 가지 모습(겨울 눈밭)으로만 만든 게임 화면이에요.
+   레이아웃: 첫 화면은 가운데 한 줄 카드, 게임은 위쪽 픽셀 횡스크롤 눈밭(가로로 넓게) + 아래쪽 문제 창. */
+:root {
+  --bg: #0b1730;        /* 겨울밤 */
+  --panel: #13254a;     /* 카드 */
+  --line: #2a4677;
+  --ink: #f2f7ff;
+  --dim: #a9bfe3;
+  --ice: #8fe1ff;       /* 얼음·눈 강조 */
+  --gold: #ffd36b;      /* 코인 */
+  --red: #ff5a6e;       /* 주요 버튼 */
+  --red-d: #ad2639;
+  --leaf: #44d18a;
+  --bad: #ff4d6d;
+  --font-disp: 'Black Han Sans', 'Jua', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --font-ui: 'Jua', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 17px; overflow-x: hidden; }
+* { box-sizing: border-box; }
+button, input { font-family: inherit; font-size: inherit; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--ice); outline-offset: 2px; }
+.hide { display: none !important; }
+
+.page { max-width: 600px; margin: 0 auto; padding-block: 20px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 14px; }
+.logo { text-align: center; padding-top: 6px; }
+.logo .eb { font-size: 13px; color: var(--ice); letter-spacing: 2px; }
+.logo h1 { margin: 6px 0 4px; font-family: var(--font-disp); font-weight: normal; font-size: 46px; line-height: 1.05; color: var(--ink); text-shadow: 0 4px 0 #1b3a78, 0 0 22px rgba(143,225,255,.55); text-wrap: balance; }
+.logo h1 span { color: var(--ice); }
+.logo .sub { color: var(--dim); font-size: 15px; text-wrap: pretty; line-height: 1.5; }
+#demo { display: block; margin: 10px auto 0; width: 100%; max-width: 440px; height: auto; border-radius: 6px; image-rendering: pixelated; border: 3px solid #2a4677; }
+.card { background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.card h2 { margin: 0; font-size: 20px; color: var(--ice); font-weight: normal; display: flex; align-items: center; gap: 8px; }
+.card h2 .coin { margin-left: auto; }
+label { font-size: 15px; color: var(--dim); }
+input[type=text] { width: 100%; padding: 12px; border-radius: 8px; border: 2px solid var(--line); background: var(--bg); color: var(--ink); min-height: 48px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.row2 > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.btn { min-height: 52px; border: 0; border-radius: 10px; background: var(--red); color: #fff; font-size: 20px; cursor: pointer; box-shadow: 0 4px 0 var(--red-d); padding: 0 12px; }
+.btn:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--red-d); }
+.btn.blue { background: #2f7fd0; box-shadow: 0 4px 0 #18508a; }
+.btn.green { background: #21a35f; box-shadow: 0 4px 0 #11663a; }
+.btn.gold { background: #e2a520; box-shadow: 0 4px 0 #8f6409; color: #20160a; }
+.btn.ghost { background: transparent; border: 2px solid var(--line); color: var(--ink); box-shadow: none; font-size: 17px; }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn small { display: block; font-size: 13px; opacity: .85; }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.seg button { min-height: 44px; border-radius: 10px; border: 2px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; font-size: 16px; }
+.seg button.on { border-color: var(--ice); background: #12324f; color: var(--ice); }
+.note { font-size: 14px; color: var(--dim); line-height: 1.5; }
+.note b { color: var(--ice); font-weight: normal; }
+.rules { margin: 0; padding-left: 20px; line-height: 1.6; font-size: 15px; }
+.rules b { color: var(--ice); font-weight: normal; }
+.warn { background: #3a1020; border: 2px solid var(--bad); border-radius: 10px; padding: 12px; font-size: 15px; line-height: 1.5; }
+.coin { font-family: var(--font-disp); color: var(--gold); font-variant-numeric: tabular-nums; font-size: 20px; }
+/* 강화 상점 */
+.shop { display: flex; flex-direction: column; gap: 8px; }
+.up { display: grid; grid-template-columns: 40px 1fr auto; gap: 10px; align-items: center; background: var(--bg); border-radius: 10px; padding: 8px 10px; }
+.up .ic { font-size: 28px; text-align: center; }
+.up .tt { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.up .tt b { font-weight: normal; font-size: 17px; }
+.up .tt span { font-size: 13px; color: var(--dim); line-height: 1.35; }
+.up .lv { display: flex; gap: 3px; }
+.up .lv i { width: 16px; height: 6px; border-radius: 3px; background: var(--line); }
+.up .lv i.on { background: var(--ice); }
+.up button { min-height: 44px; min-width: 88px; border-radius: 10px; border: 0; background: #e2a520; color: #20160a; cursor: pointer; font-size: 15px; padding: 0 10px; box-shadow: 0 3px 0 #8f6409; }
+.up button:disabled { background: var(--line); color: var(--dim); box-shadow: none; cursor: default; }
+.rank { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-variant-numeric: tabular-nums; }
+.rank li { display: grid; grid-template-columns: 34px 1fr auto; gap: 8px; padding: 6px 8px; border-radius: 6px; background: var(--bg); align-items: center; }
+.rank li .n { font-family: var(--font-disp); font-size: 16px; color: var(--ice); }
+.rank li .s { font-size: 15px; }
+.rank li .c { color: var(--dim); font-size: 13px; }
+details summary { cursor: pointer; color: var(--dim); }
+details[open] { display: flex; flex-direction: column; gap: 8px; }
+.code { font-family: var(--font-disp); font-size: 40px; color: var(--ice); text-align: center; letter-spacing: 8px; padding: 4px 0; font-variant-numeric: tabular-nums; }
+.rooms { display: flex; flex-direction: column; gap: 6px; }
+.rooms button { min-height: 50px; border-radius: 10px; border: 2px solid var(--leaf); background: var(--bg); color: var(--ink); cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 0 14px; font-size: 17px; }
+.rooms button span { font-family: var(--font-disp); font-size: 17px; color: var(--ice); }
+.cpurow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.players { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.pl { padding: 10px; border-radius: 8px; background: var(--bg); border: 2px solid var(--c, var(--line)); font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl.empty { color: var(--dim); border-style: dashed; border-color: var(--line); }
+.joinrow { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.big { font-family: var(--font-disp); font-size: 40px; color: var(--ice); text-align: center; }
+.tblwrap { overflow-x: auto; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+.tbl th, .tbl td { padding: 6px 4px; text-align: center; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.tbl th { color: var(--dim); font-weight: normal; font-size: 13px; }
+.tbl tr.me td { color: var(--ice); }
+.tbl td.nm { text-align: left; }
+.wrongs { display: flex; flex-direction: column; gap: 8px; }
+.wrongs .w { background: var(--bg); border-radius: 8px; padding: 10px; font-size: 15px; line-height: 1.5; display: flex; flex-direction: column; gap: 4px; }
+.wrongs .w .a { color: var(--ice); }
+.wrongs .w .e { color: var(--dim); font-size: 14px; }
+#toast { position: fixed; left: 50%; top: 58px; transform: translateX(-50%); background: rgba(8,18,40,.92); border: 2px solid var(--ice); color: var(--ink); padding: 8px 16px; border-radius: 99px; font-size: 16px; z-index: 60; pointer-events: none; max-width: calc(100% - 32px); text-align: center; }
+.coinbox { text-align: center; background: linear-gradient(#3a2d0c, var(--panel)); border-color: #8f6409; }
+.coinbox .coin { font-size: 34px; }
+
+/* ===== 게임 화면 ===== */
+#game { position: fixed; inset: 0; background: #000; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; display: flex; flex-direction: column; }
+#view { position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; background: #6a9bdc; }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; image-rendering: pixelated; image-rendering: crisp-edges; cursor: crosshair; }
+#tags { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.tg { position: absolute; left: 0; top: 0; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; gap: 2px; white-space: nowrap; will-change: transform; }
+.tg .nmx { font-size: 13px; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 2px #000; }
+.tg .hb { width: 44px; height: 6px; background: rgba(0,0,0,.6); overflow: hidden; position: relative; border: 1px solid #000; }
+.tg .hb i { position: absolute; inset: 0 auto 0 0; background: #44d18a; }
+.tg .hb b { position: absolute; inset: 0 auto 0 0; background: rgba(143,225,255,.9); height: 2px; }
+.tg.fz .nmx::after { content: ' 🧊'; }
+.pop { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); font-family: var(--font-disp); font-size: 22px; text-shadow: 0 0 4px #000, 0 2px 0 #000; pointer-events: none; white-space: nowrap; }
+.hudtop { position: absolute; left: 0; top: 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: max(6px, env(safe-area-inset-top, 0px)) 0 0 max(8px, env(safe-area-inset-left, 0px)); pointer-events: none; max-width: calc(100% - 260px); }
+.hudtop > * { pointer-events: auto; }
+.icon { min-width: 44px; min-height: 44px; border-radius: 6px; border: 2px solid rgba(255,255,255,.3); background: rgba(8,18,40,.6); color: var(--ink); cursor: pointer; font-size: 18px; }
+.pill { background: rgba(8,18,40,.7); border-radius: 6px; padding: 6px 10px; font-size: 16px; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pill b { font-family: var(--font-disp); font-weight: normal; color: var(--ice); font-size: 19px; }
+#mini { position: absolute; right: max(8px, env(safe-area-inset-right, 0px)); top: max(8px, env(safe-area-inset-top, 0px)); width: 240px; height: 30px; pointer-events: none; image-rendering: pixelated; border: 2px solid rgba(255,255,255,.35); }
+#feed { position: absolute; left: max(8px, env(safe-area-inset-left, 0px)); top: 56px; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; pointer-events: none; }
+#feed div { background: rgba(8,18,40,.75); border-radius: 4px; padding: 2px 12px; font-size: 14px; white-space: nowrap; }
+#banner { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); font-family: var(--font-disp); font-size: 44px; color: #fff; text-shadow: 0 0 8px #000, 0 4px 0 #1b3a78; text-align: center; pointer-events: none; white-space: nowrap; }
+#banner small { display: block; font-family: var(--font-ui); font-size: 18px; }
+/* 체력·방패·눈 */
+#stat { position: absolute; right: max(8px, env(safe-area-inset-right, 0px)); top: 46px; width: min(260px, 40%); display: flex; flex-direction: column; gap: 4px; pointer-events: none; background: rgba(8,18,40,.7); padding: 6px 9px; border-radius: 6px; border: 2px solid rgba(255,255,255,.2); }
+.bar { position: relative; height: 16px; background: rgba(255,255,255,.14); overflow: hidden; border: 1px solid #000; }
+.bar i { position: absolute; inset: 0 auto 0 0; width: 0; }
+#hpBar i { background: linear-gradient(90deg, #ff4d6d, #ffb03b 45%, #44d18a); }
+#hpBar.low i { background: #ff4d6d; }
+#shBar { height: 8px; }
+#shBar i { background: var(--ice); }
+.bar span { position: absolute; inset: 0; font-size: 12px; line-height: 15px; text-align: center; color: #fff; text-shadow: 0 0 2px #000; }
+#ammoRow { display: flex; gap: 8px; align-items: center; font-size: 15px; }
+#ammoN { font-family: var(--font-disp); font-size: 24px; color: #fff; line-height: 1; font-variant-numeric: tabular-nums; }
+#buffs { margin-left: auto; font-size: 15px; }
+/* 화면 버튼(터치) */
+.tpad { position: absolute; bottom: max(8px, env(safe-area-inset-bottom, 0px)); display: flex; gap: 8px; align-items: flex-end; }
+#padL { left: max(8px, env(safe-area-inset-left, 0px)); }
+#padR { right: max(8px, env(safe-area-inset-right, 0px)); }
+.tb { width: 64px; height: 64px; border-radius: 8px; border: 3px solid rgba(255,255,255,.55); background: rgba(8,18,40,.45); color: #fff; font-size: 26px; line-height: 1; cursor: pointer; touch-action: none; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0; }
+.tb.on { background: rgba(143,225,255,.45); }
+.tb.sm { width: 52px; height: 52px; font-size: 20px; }
+#fireBtn { width: 80px; height: 80px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #ffffff, #dbeeff 50%, #8fb8e8); color: #183764; font-size: 30px; }
+#fireBtn small { font-size: 14px; font-family: var(--font-disp); }
+#fireBtn.empty { filter: grayscale(.9) brightness(.6); }
+@media (hover: hover) and (pointer: fine) { .tpad { display: none; } }
+#hurt { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 80px 24px rgba(160,220,255,.85); opacity: 0; transition: opacity .25s; }
+#chill { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 60px 18px rgba(143,225,255,.75); opacity: 0; transition: opacity .3s; }
+#frozen { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, rgba(160,225,255,.1), rgba(120,200,255,.5)); display: flex; align-items: center; justify-content: center; }
+#frozen div { font-family: var(--font-disp); font-size: 38px; color: #fff; text-shadow: 0 0 8px #1b3a78, 0 3px 0 #1b3a78; text-align: center; }
+#frozen small { display: block; font-family: var(--font-ui); font-size: 17px; }
+#nogl { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; line-height: 1.6; background: #0b1730; }
+/* 문제 창(늘 열려 있어요. 움직이면서 풀어요): 아래쪽 띠 */
+#pad { position: relative; flex: 0 0 auto; max-height: 42vh; background: #0e1d3d; border-top: 4px solid var(--ice); display: flex; flex-direction: column; padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
+#pad.ok { border-top-color: var(--leaf); }
+#pad.no { border-top-color: var(--bad); }
+#qp { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px 12px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); grid-template-rows: auto auto 1fr; column-gap: 14px; row-gap: 6px; }
+#qp .qtop { grid-column: 1; }
+#qp .qtext { grid-column: 1; }
+#qp .qres { grid-column: 1; }
+#qp .opts { grid-column: 2; grid-row: 1 / 4; align-self: center; }
+.qtop { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tag { font-size: 14px; padding: 2px 10px; border-radius: 4px; background: var(--bg); color: var(--ice); border: 1px solid var(--line); }
+.tag.y { color: var(--gold); }
+.qtext { font-size: 19px; line-height: 1.45; word-break: keep-all; overflow-wrap: anywhere; }
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.opts button { min-height: 48px; border-radius: 6px; border: 2px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; font-size: 17px; text-align: left; padding: 5px 10px; line-height: 1.3; word-break: keep-all; overflow-wrap: anywhere; display: flex; gap: 8px; align-items: center; box-shadow: 0 3px 0 #06101f; }
+.opts button b { font-family: var(--font-disp); font-size: 15px; color: var(--ice); font-weight: normal; flex: none; }
+.opts button.ok { border-color: var(--leaf); background: #0f3a26; }
+.opts button.no { border-color: var(--bad); background: #3a0f1a; }
+.opts button:disabled { cursor: default; }
+.qres { font-size: 16px; line-height: 1.45; }
+.qres .e { color: var(--dim); font-size: 15px; }
+.qres b { color: var(--ice); font-weight: normal; }
+.keyhelp { font-size: 13px; color: var(--dim); text-align: center; padding: 0 8px 6px; }
+.fr { display: inline-flex; flex-direction: column; vertical-align: middle; text-align: center; font-size: .8em; line-height: 1.05; margin: 0 2px; }
+.fr > span:first-child { border-bottom: 1.5px solid currentColor; padding: 0 2px; }
+@media (max-aspect-ratio: 1/1) {
+  #view { flex: 0 0 auto; height: min(58vh, 120vw); }
+  #qp .opts { align-self: stretch; }
+  #pad { flex: 1 1 auto; max-height: none; min-height: 220px; }
+  #qp { display: flex; flex-direction: column; }
+  #mini { width: 150px; height: 19px; }
+  #feed { top: 150px; }
+  .hudtop { max-width: calc(100% - 160px); }
+  #stat { top: 52px; right: auto; left: max(8px, env(safe-area-inset-left, 0px)); width: min(220px, 56%); }
+}
+@media (max-height: 600px) and (min-aspect-ratio: 1/1) { .qtext { font-size: 16px; } .opts button { min-height: 40px; font-size: 15px; } #pad { max-height: 46vh; } #stat { width: 200px; } }
+@media (hover: none) { .keyhelp { display: none; } }
+@media (prefers-reduced-motion: reduce) { .btn:active { transform: none; } }
+</style>
+</head>
+<body>
+
+<div id="home" class="page">
+  <div class="logo">
+    <div class="eb">6-2 · 4단원 · 비례식의 성질 · 픽셀 횡스크롤</div>
+    <h1>비례식 <span>픽셀 눈싸움</span></h1>
+    <div class="sub">외항의 곱 = 내항의 곱! 옆으로 길게 펼쳐진 눈밭을 달리고 뛰어오르며, 문제를 맞혀 만든 눈덩이로 친구를 꽁꽁 얼려요. 이기면 코인을 받아 장비를 강화해요.</div>
+    <canvas id="demo" width="220" height="100" aria-hidden="true"></canvas>
+  </div>
+  <div id="inapp" class="warn hide">카카오톡·네이버 같은 앱 안에서 열렸어요. 대전 연결이 안 될 수 있으니 오른쪽 위 메뉴에서 <b>다른 브라우저로 열기</b>를 눌러 주세요.</div>
+  <div id="nofb" class="warn hide"></div>
+  <div class="card">
+    <div class="row2">
+      <div><label for="nm">이름</label><input type="text" id="nm" maxlength="10" autocomplete="off" placeholder="예: 김하늘"></div>
+      <div><label for="cl">반 코드</label><input type="text" id="cl" maxlength="20" autocomplete="off" placeholder="예: 옥정초604"></div>
+    </div>
+    <button class="btn" id="goNet">⛄ 친구와 온라인 눈싸움<small id="netSub">각자 기기에서 2~6명 동시 대전 · 빠른 매칭</small></button>
+    <div class="note">🤖 컴퓨터와 연습 · 컴퓨터 실력</div>
+    <div class="seg" id="lvSeg"><button data-lv="0">🙂 쉬움</button><button data-lv="1" class="on">😎 보통</button><button data-lv="2">🔥 어려움</button></div>
+    <div class="cpurow"><button class="btn blue" data-cpu="1">🤖 1명</button><button class="btn blue" data-cpu="3">🤖 3명</button><button class="btn blue" data-cpu="5">🤖 5명</button></div>
+    <div id="homeMsg" class="note" role="status"></div>
+  </div>
+  <div class="card" id="shopCard">
+    <h2>🛠️ 장비 강화 <span class="coin" id="shopCoin">🪙 -</span></h2>
+    <div class="note" id="shopNote">이름과 반 코드를 쓰면 내 코인과 장비가 보여요.</div>
+    <div class="shop" id="shop"></div>
+  </div>
+  <div class="card">
+    <h2>게임 방법</h2>
+    <ul class="rules">
+      <li>한 판에 <b>2~6명</b>이 옆으로 긴 픽셀 눈밭(가로 120칸)에서 <b>4분</b> 동안 눈싸움을 해요. 체력 <b>100</b>, 눈덩이 한 개에 <b>20</b> 피해.</li>
+      <li>눈덩이는 <b>문제를 맞혀야</b> 생겨요. 외항·내항 <b>⚪+2</b> · □ 구하기·비례식 찾기 <b>⚪+3</b> · 어려운 문제 <b>⚪+4</b> (최대 12개).</li>
+      <li>문제 창은 늘 열려 있어요. <b>움직이면서</b> 풀 수 있어요. 틀리면 <b>눈덩이 1개가 없어지고</b>(눈덩이가 0개면 <b>2초 동안 못 움직여요</b>). <b>30초 동안 문제를 하나도 풀지 않으면 3초 동안 얼어요</b>(20초가 지나면 알려 줘요). 풀이를 <b>3초</b> 보고 다음 문제로 넘어가요.</li>
+      <li>체력이 0이 되면 <b>3초 동안 꽁꽁</b> 얼어요. 꽁꽁인 동안에도 문제는 풀 수 있고, 풀리면 체력 100으로 다시 뛰어요(2초 보호).</li>
+      <li>점수 = 맞힌 눈덩이 <b>×10</b> + 꽁꽁 만든 친구 <b>×30</b>. 4분이 끝나면 점수 순으로 순위를 정해요.</li>
+      <li><b>3문제를 연달아</b> 맞히면 아이템! 🛡️ 얼음 방패 +40 · ☕ 핫초코 회복 +40 · 🌕 왕눈덩이 3개(피해 ×1.5) · 🛷 썰매 신발 8초</li>
+      <li>대전이 끝나면 순위에 따라 <b>🪙 코인</b>을 받아요(1위 100코인 + 정답 1개 2코인). 코인으로 <b>장비를 강화</b>해요. 컴퓨터 연습은 1위 보너스가 작아요.</li>
+      <li>🐉 <b>40초부터 35초마다 서리용</b>이 나타나 눈밭 가운데를 기준으로 <b>위쪽 또는 아래쪽 절반</b>에 냉기바람(7초)을 뿜어요. 3초 전에 알려 줘요. 바람 속에서는 <b>느려지고 1초마다 체력 4</b>가 닳아요(체력 1 아래로는 안 내려가요). 아래쪽 바람이면 발판을 밟고 위로, 위쪽 바람이면 아래로 피해요!</li>
+      <li>눈밭은 판마다 달라요: 언덕 · 탑과 굴 · 골짜기 다리 · 눈 요새 · 하늘 계단 · 🔴 <b>트램펄린</b>(밟으면 높이 튀어 올라요) · 미끄러운 <b>빙판</b>. 하늘도 낮·노을·오로라 밤 중 하나예요.</li>
+      <li><b>눈 벽돌</b> 뒤에 숨으면 눈덩이를 막을 수 있어요. 눈덩이는 포물선으로 날아가요. <b>얼음 발판</b>은 2칸씩 계단처럼 놓여 있어 밟고 위로 올라갈 수 있어요(아래에서 뛰어 통과). ↓를 누르면 아래로 내려가요.</li>
+      <li>조종 — 컴퓨터: <b>←·→</b>(A·D) 달리기, <b>↑</b>(W) 점프, <b>↓</b>(S) 발판 아래로, <b>스페이스</b> 자동 조준 던지기, 화면 <b>클릭</b> 그곳에 던지기, <b>1~4</b> 답 고르기. 태블릿·휴대폰: 왼쪽 아래 <b>◀ ▼ ▶</b>, 오른쪽 아래 <b>⤒</b> 점프·<b>⚪</b> 던지기, 화면을 톡 누르면 그곳에 던지기.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h2 id="rkTitle">순위</h2>
+    <ol class="rank" id="rkHome"><li><span class="n">…</span><span class="s">불러오는 중</span><span></span></li></ol>
+  </div>
+  <div class="note">문항: 수학 6-2 교과서 86~87쪽 「비례식의 성질을 알아봐요」, 수학익힘 62~63쪽 유형 128문항.</div>
+  <div class="card">
+    <details>
+      <summary>👩‍🏫 선생님 메뉴</summary>
+      <label for="tPin">비밀번호 (firebase-config.js의 TEACHER_PIN)</label>
+      <input type="text" id="tPin" inputmode="numeric" autocomplete="off" style="-webkit-text-security:disc">
+      <label for="tCls">반 코드 <span class="note">(비우면 전체)</span></label>
+      <input type="text" id="tCls" maxlength="20" autocomplete="off">
+      <button class="btn blue" id="tBtn3" data-what="csv">📥 대전 기록 내려받기 (엑셀용 CSV)</button>
+      <button class="btn ghost" id="tBtn" data-what="rec">대전 기록 초기화</button>
+      <button class="btn ghost" id="tBtn2" data-what="coin">코인·장비 초기화</button>
+      <button class="btn ghost" id="tBtn4" data-what="room">지난 대전 방 정리 (수업이 끝난 뒤)</button>
+      <div id="tMsg" class="note">초기화하기 전에 지울 내용이 CSV 파일로 먼저 내려받아져요. 코인·기록은 파이어베이스 콘솔(Realtime Database의 snow → px 아래)에서도 볼 수 있어요.</div>
+    </details>
+  </div>
+
+</div>
+
+<div id="lobby" class="page hide">
+  <div class="logo"><h1 style="font-size:34px">⛄ 온라인 픽셀 눈싸움</h1><div class="sub" id="lbWho"></div></div>
+  <div class="card" id="lbMatchCard">
+    <h2>함께할 친구 찾기 (2~6명)</h2>
+    <button class="btn" id="lbQuick">🎲 빠른 매칭<small>같은 반 코드의 기다리는 방에 자동으로 들어가요</small></button>
+    <button class="btn ghost" id="mkRoom">🏠 새 방 만들기 (번호를 친구에게 알려 주기)</button>
+  </div>
+  <div class="card hide" id="lbWait">
+    <h2>대기실</h2>
+    <div class="code" id="lbCode">----</div>
+    <div class="players" id="lbPlayers"></div>
+    <div class="note" id="lbWaitMsg" role="status">친구가 들어오면 시작해요.</div>
+    <button class="btn green hide" id="lbStart">▶ 지금 시작</button>
+    <button class="btn ghost" id="lbCancel">대기실 나가기</button>
+  </div>
+  <div class="card" id="lbJoinCard">
+    <h2>친구 방에 들어가기</h2>
+    <div class="joinrow"><input type="text" id="lbIn" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="방 번호 4자리"><button class="btn blue" id="lbJoin">들어가기</button></div>
+    <div class="note">같은 반 코드의 기다리는 방</div>
+    <div class="rooms" id="lbRooms"><div class="note">찾는 중…</div></div>
+  </div>
+  <div id="lbMsg" class="note" role="status"></div>
+  <button class="btn ghost" id="lbBack">← 처음으로</button>
+</div>
+
+<div id="game" class="hide">
+  <div id="view">
+    <canvas id="cv"></canvas>
+    <div id="tags"></div>
+    <div id="hurt"></div>
+    <div id="chill"></div>
+    <div id="frozen" class="hide"><div>🧊 꽁꽁!<small id="frozenT">3초 뒤에 다시 뛰어요 · 그동안 문제를 풀어 눈을 모아요</small></div></div>
+    <div class="hudtop">
+      <button class="icon" id="quitBtn" aria-label="그만하기">✕</button>
+      <div class="pill">🏆 <b id="scoreN">0</b>점 · <b id="rankN">-</b>위</div>
+      <div class="pill">🧊 <b id="koN">0</b></div>
+      <div class="pill" id="clock">0:00</div>
+    </div>
+    <canvas id="mini" width="240" height="30"></canvas>
+    <div id="feed"></div>
+    <div id="banner"></div>
+    <div id="stat">
+      <div class="bar" id="hpBar"><i id="hpFill"></i><span id="hpTxt">100</span></div>
+      <div class="bar" id="shBar"><i id="shFill"></i></div>
+      <div id="ammoRow">⚪ <span id="ammoN">0</span><span class="note" id="ammoMax">/12</span><span id="buffs"></span></div>
+    </div>
+    <div class="tpad" id="padL"><button class="tb" data-k="l" aria-label="왼쪽">◀</button><button class="tb sm" data-k="d" aria-label="아래로">▼</button><button class="tb" data-k="r" aria-label="오른쪽">▶</button></div>
+    <div class="tpad" id="padR"><button class="tb" data-k="j" aria-label="점프">⤒</button><button class="tb" id="fireBtn" data-k="f" aria-label="눈덩이 던지기">⚪<small id="fireN">0</small></button></div>
+    <div id="nogl" class="hide"></div>
+  </div>
+  <div id="pad">
+    <div id="qp" aria-live="polite">
+      <div class="qtop"><span class="tag" id="qTag">⭐</span><span class="tag y" id="qInfo"></span></div>
+      <div class="qtext" id="qText"></div>
+      <div class="opts" id="qOpts"></div>
+      <div class="qres" id="qRes"></div>
+    </div>
+    <div class="keyhelp">←→ 달리기 · ↑ 점프 · ↓ 발판 아래로 · 스페이스 자동 조준 던지기 · 클릭 그곳에 던지기 · 1~4 답</div>
+  </div>
+</div>
+
+<div id="result" class="page hide">
+  <div class="big" id="rsHead">1위!</div>
+  <div class="note" id="rsSub" style="text-align:center"></div>
+  <div class="card coinbox" id="rsCoinCard"><div class="coin" id="rsCoin">🪙 +0</div><div class="note" id="rsCoinNote"></div></div>
+  <div class="card tblwrap"><table class="tbl" id="rsTbl"></table></div>
+  <div class="card hide" id="rsSaveCard"><div class="note" id="rsSave" role="status"></div></div>
+  <button class="btn gold" id="rsShop">🛠️ 코인으로 장비 강화하기</button>
+  <div class="card">
+    <h2>틀린 문제 다시 보기</h2>
+    <div class="wrongs" id="rsWrong"></div>
+  </div>
+  <button class="btn" id="rsAgain">다시 하기</button>
+  <button class="btn ghost" id="rsHome">처음으로</button>
+</div>
+<div id="toast" class="hide" role="status"></div>
+
+<script>
+"use strict";
+// ===== 문항: 수학 6-2 교과서 86~87쪽 비례식의 성질 (수학익힘 62~63쪽 유형) — questions.py가 Fraction으로 검증 =====
+// [번호, 문제, [보기 4개], 정답 보기 번호(0~3), 단계(1 ⭐ · 2 ⭐⭐ · 3 ⭐⭐⭐), 풀이]
+var Q = [[1,"비례식 6：21=8：28에서 외항을 모두 고르면?",["21, 28","6, 8","21, 8","6, 28"],3,1,"바깥쪽에 있는 6과 28이 외항, 안쪽에 있는 21과 8이 내항이에요."],[2,"비례식 15：5=9：3에서 내항을 모두 고르면?",["5, 3","15, 3","5, 9","15, 9"],2,1,"바깥쪽에 있는 15와 3이 외항, 안쪽에 있는 5와 9가 내항이에요."],[3,"비례식 56：16=21：6에서 외항을 모두 고르면?",["16, 6","16, 21","56, 21","56, 6"],3,1,"바깥쪽에 있는 56과 6이 외항, 안쪽에 있는 16과 21이 내항이에요."],[4,"비례식 36：32=9：8에서 내항을 모두 고르면?",["36, 8","36, 9","32, 9","32, 8"],2,1,"바깥쪽에 있는 36과 8이 외항, 안쪽에 있는 32와 9가 내항이에요."],[5,"비례식 21：28=6：8에서 외항을 모두 고르면?",["21, 6","28, 6","21, 8","28, 8"],2,1,"바깥쪽에 있는 21과 8이 외항, 안쪽에 있는 28과 6이 내항이에요."],[6,"비례식 21：3=28：4에서 내항을 모두 고르면?",["21, 4","3, 4","21, 28","3, 28"],3,1,"바깥쪽에 있는 21과 4가 외항, 안쪽에 있는 3과 28이 내항이에요."],[7,"비례식 14：2=28：4에서 외항을 모두 고르면?",["14, 4","2, 28","2, 4","14, 28"],0,1,"바깥쪽에 있는 14와 4가 외항, 안쪽에 있는 2와 28이 내항이에요."],[8,"비례식 7：5=49：35에서 내항을 모두 고르면?",["5, 35","5, 49","7, 49","7, 35"],1,1,"바깥쪽에 있는 7과 35가 외항, 안쪽에 있는 5와 49가 내항이에요."],[9,"비례식 28：4=42：6에서 외항을 모두 고르면?",["4, 42","28, 42","28, 6","4, 6"],2,1,"바깥쪽에 있는 28과 6이 외항, 안쪽에 있는 4와 42가 내항이에요."],[10,"비례식 16：14=8：7에서 내항을 모두 고르면?",["14, 8","16, 7","16, 8","14, 7"],0,1,"바깥쪽에 있는 16과 7이 외항, 안쪽에 있는 14와 8이 내항이에요."],[11,"비례식 6：24=8：32에서 외항을 모두 고르면?",["24, 32","24, 8","6, 32","6, 8"],2,1,"바깥쪽에 있는 6과 32가 외항, 안쪽에 있는 24와 8이 내항이에요."],[12,"비례식 6：30=4：20에서 내항을 모두 고르면?",["6, 4","30, 4","30, 20","6, 20"],1,1,"바깥쪽에 있는 6과 20이 외항, 안쪽에 있는 30과 4가 내항이에요."],[13,"비례식 4：14=8：28에서 외항을 모두 고르면?",["4, 28","14, 28","14, 8","4, 8"],0,1,"바깥쪽에 있는 4와 28이 외항, 안쪽에 있는 14와 8이 내항이에요."],[14,"비례식 40：56=5：7에서 내항을 모두 고르면?",["56, 7","40, 5","56, 5","40, 7"],2,1,"바깥쪽에 있는 40과 7이 외항, 안쪽에 있는 56과 5가 내항이에요."],[15,"비례식 16：56=6：21에서 외항을 모두 고르면?",["56, 6","16, 6","56, 21","16, 21"],3,1,"바깥쪽에 있는 16과 21이 외항, 안쪽에 있는 56과 6이 내항이에요."],[16,"비례식 12：15=24：30에서 내항을 모두 고르면?",["15, 24","12, 24","15, 30","12, 30"],0,1,"바깥쪽에 있는 12와 30이 외항, 안쪽에 있는 15와 24가 내항이에요."],[17,"비례식 20：8=15：6에서 외항의 곱은 얼마일까요?",["120","26","48","300"],0,1,"외항은 20과 6이에요. 외항의 곱 = 20×6 = 120 (내항의 곱 8×15 = 120과 같아요)"],[18,"비례식 4：18=2：9에서 내항의 곱은 얼마일까요?",["72","20","18","36"],3,1,"내항은 18과 2예요. 내항의 곱 = 18×2 = 36 (외항의 곱 4×9 = 36과 같아요)"],[19,"비례식 14：35=4：10에서 외항의 곱은 얼마일까요?",["140","350","56","24"],0,1,"외항은 14와 10이에요. 외항의 곱 = 14×10 = 140 (내항의 곱 35×4 = 140과 같아요)"],[20,"비례식 6：48=5：40에서 내항의 곱은 얼마일까요?",["288","240","200","53"],1,1,"내항은 48과 5예요. 내항의 곱 = 48×5 = 240 (외항의 곱 6×40 = 240과 같아요)"],[21,"비례식 21：12=7：4에서 외항의 곱은 얼마일까요?",["147","84","25","48"],1,1,"외항은 21과 4예요. 외항의 곱 = 21×4 = 84 (내항의 곱 12×7 = 84와 같아요)"],[22,"비례식 12：16=15：20에서 내항의 곱은 얼마일까요?",["31","300","240","192"],2,1,"내항은 16과 15예요. 내항의 곱 = 16×15 = 240 (외항의 곱 12×20 = 240과 같아요)"],[23,"비례식 21：14=15：10에서 외항의 곱은 얼마일까요?",["315","31","140","210"],3,1,"외항은 21과 10이에요. 외항의 곱 = 21×10 = 210 (내항의 곱 14×15 = 210과 같아요)"],[24,"비례식 32：4=56：7에서 내항의 곱은 얼마일까요?",["60","128","392","224"],3,1,"내항은 4와 56이에요. 내항의 곱 = 4×56 = 224 (외항의 곱 32×7 = 224와 같아요)"],[25,"비례식 7：42=1：6에서 외항의 곱은 얼마일까요?",["252","42","13","7"],1,1,"외항은 7과 6이에요. 외항의 곱 = 7×6 = 42 (내항의 곱 42×1 = 42와 같아요)"],[26,"비례식 3：2=18：12에서 내항의 곱은 얼마일까요?",["6","216","36","20"],2,1,"내항은 2와 18이에요. 내항의 곱 = 2×18 = 36 (외항의 곱 3×12 = 36과 같아요)"],[27,"비례식 36：16=18：8에서 외항의 곱은 얼마일까요?",["44","128","648","288"],3,1,"외항은 36과 8이에요. 외항의 곱 = 36×8 = 288 (내항의 곱 16×18 = 288과 같아요)"],[28,"비례식 8：32=3：12에서 내항의 곱은 얼마일까요?",["36","96","256","35"],1,1,"내항은 32와 3이에요. 내항의 곱 = 32×3 = 96 (외항의 곱 8×12 = 96과 같아요)"],[29,"비례식 24：9=8：3에서 외항의 곱은 얼마일까요?",["192","216","27","72"],3,1,"외항은 24와 3이에요. 외항의 곱 = 24×3 = 72 (내항의 곱 9×8 = 72와 같아요)"],[30,"비례식 4：6=14：21에서 내항의 곱은 얼마일까요?",["84","294","20","24"],0,1,"내항은 6과 14예요. 내항의 곱 = 6×14 = 84 (외항의 곱 4×21 = 84와 같아요)"],[31,"비례식 48：6=32：4에서 외항의 곱은 얼마일까요?",["192","1536","52","24"],0,1,"외항은 48과 4예요. 외항의 곱 = 48×4 = 192 (내항의 곱 6×32 = 192와 같아요)"],[32,"비례식 56：7=8：1에서 내항의 곱은 얼마일까요?",["392","56","8","15"],1,1,"내항은 7과 8이에요. 내항의 곱 = 7×8 = 56 (외항의 곱 56×1 = 56과 같아요)"],[33,"비례식 7：4=14：8에서 외항의 곱은 얼마일까요?",["56","15","32","98"],0,1,"외항은 7과 8이에요. 외항의 곱 = 7×8 = 56 (내항의 곱 4×14 = 56과 같아요)"],[34,"비례식 54：12=27：6에서 내항의 곱은 얼마일까요?",["324","162","39","648"],0,1,"내항은 12와 27이에요. 내항의 곱 = 12×27 = 324 (외항의 곱 54×6 = 324와 같아요)"],[35,"비례식 3：15=8：40에서 외항의 곱은 얼마일까요?",["24","43","120","600"],2,1,"외항은 3과 40이에요. 외항의 곱 = 3×40 = 120 (내항의 곱 15×8 = 120과 같아요)"],[36,"비례식 8：6=28：21에서 내항의 곱은 얼마일까요?",["34","588","48","168"],3,1,"내항은 6과 28이에요. 내항의 곱 = 6×28 = 168 (외항의 곱 8×21 = 168과 같아요)"],[37,"비례식 8：16=1：2에서 외항의 곱은 얼마일까요?",["32","10","8","16"],3,1,"외항은 8과 2예요. 외항의 곱 = 8×2 = 16 (내항의 곱 16×1 = 16과 같아요)"],[38,"비례식 48：8=36：6에서 내항의 곱은 얼마일까요?",["288","216","44","384"],0,1,"내항은 8과 36이에요. 내항의 곱 = 8×36 = 288 (외항의 곱 48×6 = 288과 같아요)"],[39,"비례식 12：4=9：3에서 외항의 곱은 얼마일까요?",["12","108","36","15"],2,1,"외항은 12와 3이에요. 외항의 곱 = 12×3 = 36 (내항의 곱 4×9 = 36과 같아요)"],[40,"비례식 3：15=5：25에서 내항의 곱은 얼마일까요?",["20","75","45","125"],1,1,"내항은 15와 5예요. 내항의 곱 = 15×5 = 75 (외항의 곱 3×25 = 75와 같아요)"],[41,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 8：6=12：□",["4","9","2","12"],1,2,"외항의 곱과 내항의 곱은 같아요. 8×□ = 6×12 = 72, □ = 72÷8 = 9"],[42,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 10：8=15：□",["12","15","8","3"],0,2,"외항의 곱과 내항의 곱은 같아요. 10×□ = 8×15 = 120, □ = 120÷10 = 12"],[43,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 4：□=1：25",["22","4","100","25"],2,2,"외항의 곱과 내항의 곱은 같아요. □×1 = 4×25 = 100, □ = 100÷1 = 100"],[44,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 3：11=□：22",["22","3","12","6"],3,2,"외항의 곱과 내항의 곱은 같아요. 11×□ = 3×22 = 66, □ = 66÷11 = 6"],[45,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 6：5=12：□",["10","12","20","5"],0,2,"외항의 곱과 내항의 곱은 같아요. 6×□ = 5×12 = 60, □ = 60÷6 = 10"],[46,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 24：3=□：2",["2","25","36","16"],3,2,"외항의 곱과 내항의 곱은 같아요. 3×□ = 24×2 = 48, □ = 48÷3 = 16"],[47,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 15：□=5：6",["18","15","36","6"],0,2,"외항의 곱과 내항의 곱은 같아요. □×5 = 15×6 = 90, □ = 90÷5 = 18"],[48,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 8：2=4：□",["1","2","4","6"],0,2,"외항의 곱과 내항의 곱은 같아요. 8×□ = 2×4 = 8, □ = 8÷8 = 1"],[49,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. □：16=6：12",["6","2","8","32"],2,2,"외항의 곱과 내항의 곱은 같아요. □×12 = 16×6 = 96, □ = 96÷12 = 8"],[50,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 6：□=9：21",["21","6","24","14"],3,2,"외항의 곱과 내항의 곱은 같아요. □×9 = 6×21 = 126, □ = 126÷9 = 14"],[51,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 7：3=□：6",["4","6","14","7"],2,2,"외항의 곱과 내항의 곱은 같아요. 3×□ = 7×6 = 42, □ = 42÷3 = 14"],[52,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 30：25=6：□",["125","5","6","49"],1,2,"외항의 곱과 내항의 곱은 같아요. 30×□ = 25×6 = 150, □ = 150÷30 = 5"],[53,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. □：8=12：4",["24","48","8","12"],0,2,"외항의 곱과 내항의 곱은 같아요. □×4 = 8×12 = 96, □ = 96÷4 = 24"],[54,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 3：□=1：3",["1","18","9","3"],2,2,"외항의 곱과 내항의 곱은 같아요. □×1 = 3×3 = 9, □ = 9÷1 = 9"],[55,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 20：16=□：12",["20","15","12","24"],1,2,"외항의 곱과 내항의 곱은 같아요. 16×□ = 20×12 = 240, □ = 240÷16 = 15"],[56,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 5：40=2：□",["100","2","43","16"],3,2,"외항의 곱과 내항의 곱은 같아요. 5×□ = 40×2 = 80, □ = 80÷5 = 16"],[57,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. □：16=5：2",["5","16","40","80"],2,2,"외항의 곱과 내항의 곱은 같아요. □×2 = 16×5 = 80, □ = 80÷2 = 40"],[58,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 4：□=5：10",["2","10","11","8"],3,2,"외항의 곱과 내항의 곱은 같아요. □×5 = 4×10 = 40, □ = 40÷5 = 8"],[59,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 7：9=□：18",["28","7","14","18"],2,2,"외항의 곱과 내항의 곱은 같아요. 9×□ = 7×18 = 126, □ = 126÷9 = 14"],[60,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 9：12=12：□",["12","9","16","32"],2,2,"외항의 곱과 내항의 곱은 같아요. 9×□ = 12×12 = 144, □ = 144÷9 = 16"],[61,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. □：4=56：32",["7","84","4","56"],0,2,"외항의 곱과 내항의 곱은 같아요. □×32 = 4×56 = 224, □ = 224÷32 = 7"],[62,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 5：□=6：48",["5","49","48","40"],3,2,"외항의 곱과 내항의 곱은 같아요. □×6 = 5×48 = 240, □ = 240÷6 = 40"],[63,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 21：28=□：4",["4","147","3","45"],2,2,"외항의 곱과 내항의 곱은 같아요. 28×□ = 21×4 = 84, □ = 84÷28 = 3"],[64,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 10：8=30：□",["24","8","48","30"],0,2,"외항의 곱과 내항의 곱은 같아요. 10×□ = 8×30 = 240, □ = 240÷10 = 24"],[65,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. □：15=4：5",["4","12","15","24"],1,2,"외항의 곱과 내항의 곱은 같아요. □×5 = 15×4 = 60, □ = 60÷5 = 12"],[66,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 16：□=4：14",["14","2","56","16"],2,2,"외항의 곱과 내항의 곱은 같아요. □×4 = 16×14 = 224, □ = 224÷4 = 56"],[67,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 9：3=□：2",["9","10","2","6"],3,2,"외항의 곱과 내항의 곱은 같아요. 3×□ = 9×2 = 18, □ = 18÷3 = 6"],[68,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 6：3=10：□",["3","5","10","6"],1,2,"외항의 곱과 내항의 곱은 같아요. 6×□ = 3×10 = 30, □ = 30÷6 = 5"],[69,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. □：32=6：16",["6","24","12","32"],2,2,"외항의 곱과 내항의 곱은 같아요. □×16 = 32×6 = 192, □ = 192÷16 = 12"],[70,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 4：□=10：15",["15","21","6","4"],2,2,"외항의 곱과 내항의 곱은 같아요. □×10 = 4×15 = 60, □ = 60÷10 = 6"],[71,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 18：42=□：7",["53","108","3","7"],2,2,"외항의 곱과 내항의 곱은 같아요. 42×□ = 18×7 = 126, □ = 126÷42 = 3"],[72,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 8：64=4：□",["4","68","32","128"],2,2,"외항의 곱과 내항의 곱은 같아요. 8×□ = 64×4 = 256, □ = 256÷8 = 32"],[73,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. □：14=4：28",["2","98","18","4"],0,2,"외항의 곱과 내항의 곱은 같아요. □×28 = 14×4 = 56, □ = 56÷28 = 2"],[74,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 63：□=27：3",["567","3","7","63"],2,2,"외항의 곱과 내항의 곱은 같아요. □×27 = 63×3 = 189, □ = 189÷27 = 7"],[75,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 9：4=□：12",["3","12","27","1"],2,2,"외항의 곱과 내항의 곱은 같아요. 4×□ = 9×12 = 108, □ = 108÷4 = 27"],[76,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 6：15=10：□",["11","9","10","25"],3,2,"외항의 곱과 내항의 곱은 같아요. 6×□ = 15×10 = 150, □ = 150÷6 = 25"],[77,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. □：4=35：14",["4","10","35","45"],1,2,"외항의 곱과 내항의 곱은 같아요. □×14 = 4×35 = 140, □ = 140÷14 = 10"],[78,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 7：□=49：21",["3","21","63","7"],0,2,"외항의 곱과 내항의 곱은 같아요. □×49 = 7×21 = 147, □ = 147÷49 = 3"],[79,"비례식의 성질을 이용하여 비례식인 것을 찾아보세요.",["4：3=33：24","5：2=35：14","9：8=28：24","6：5=5：6"],1,2,"5：2=35：14: 외항의 곱 5×14=70, 내항의 곱 2×35=70로 같아요. 나머지는 두 곱이 달라요."],[80,"비례식의 성질을 이용하여 비례식이 아닌 것을 찾아보세요.",["6：12=3：9","10：2=35：7","7：2=35：10","32：24=8：6"],0,2,"6：12=3：9: 외항의 곱 6×9=54, 내항의 곱 12×3=36로 달라서 비례식이 아니에요."],[81,"비례식의 성질을 이용하여 비례식인 것을 찾아보세요.",["5：5=32：40","20：5=8：2","7：49=5：28","15：5=12：5"],1,2,"20：5=8：2: 외항의 곱 20×2=40, 내항의 곱 5×8=40로 같아요. 나머지는 두 곱이 달라요."],[82,"비례식의 성질을 이용하여 비례식이 아닌 것을 찾아보세요.",["24：16=6：4","21：35=7：10","4：32=8：64","6：54=2：18"],1,2,"21：35=7：10: 외항의 곱 21×10=210, 내항의 곱 35×7=245로 달라서 비례식이 아니에요."],[83,"비례식의 성질을 이용하여 비례식인 것을 찾아보세요.",["7：9=15：18","73：8=18：2","6：5=30：25","31：36=5：6"],2,2,"6：5=30：25: 외항의 곱 6×25=150, 내항의 곱 5×30=150로 같아요. 나머지는 두 곱이 달라요."],[84,"비례식의 성질을 이용하여 비례식이 아닌 것을 찾아보세요.",["8：4=56：32","25：5=30：6","25：10=10：4","42：12=21：6"],0,2,"8：4=56：32: 외항의 곱 8×32=256, 내항의 곱 4×56=224로 달라서 비례식이 아니에요."],[85,"비례식의 성질을 이용하여 비례식인 것을 찾아보세요.",["8：7=24：21","6：1=18：13","1：3=7：22","16：18=8：10"],0,2,"8：7=24：21: 외항의 곱 8×21=168, 내항의 곱 7×24=168로 같아요. 나머지는 두 곱이 달라요."],[86,"비례식의 성질을 이용하여 비례식이 아닌 것을 찾아보세요.",["45：5=27：3","7：28=1：4","7：5=48：40","16：56=4：14"],2,2,"7：5=48：40: 외항의 곱 7×40=280, 내항의 곱 5×48=240로 달라서 비례식이 아니에요."],[87,"비례식의 성질을 이용하여 비례식인 것을 찾아보세요.",["3：2=9：6","4：1=2：8","4：3=9：12","8：7=7：8"],0,2,"3：2=9：6: 외항의 곱 3×6=18, 내항의 곱 2×9=18로 같아요. 나머지는 두 곱이 달라요."],[88,"비례식의 성질을 이용하여 비례식이 아닌 것을 찾아보세요.",["9：3=12：6","6：2=12：4","5：20=7：28","28：63=4：9"],0,2,"9：3=12：6: 외항의 곱 9×6=54, 내항의 곱 3×12=36로 달라서 비례식이 아니에요."],[89,"비례식의 성질을 이용하여 비례식인 것을 찾아보세요.",["8：36=36：8","20：35=4：7","9：3=16：5","10：6=12：20"],1,2,"20：35=4：7: 외항의 곱 20×7=140, 내항의 곱 35×4=140로 같아요. 나머지는 두 곱이 달라요."],[90,"비례식의 성질을 이용하여 비례식이 아닌 것을 찾아보세요.",["18：2=36：4","7：28=8：32","7：5=56：40","9：4=10：5"],3,2,"9：4=10：5: 외항의 곱 9×5=45, 내항의 곱 4×10=40로 달라서 비례식이 아니에요."],[91,"비례식의 성질을 이용하여 비례식인 것을 찾아보세요.",["16：8=8：16","6：8=9：12","14：18=7：11","32：20=8：6"],1,2,"6：8=9：12: 외항의 곱 6×12=72, 내항의 곱 8×9=72로 같아요. 나머지는 두 곱이 달라요."],[92,"비례식의 성질을 이용하여 비례식이 아닌 것을 찾아보세요.",["8：12=10：15","7：4=42：25","45：5=54：6","1：3=2：6"],1,2,"7：4=42：25: 외항의 곱 7×25=175, 내항의 곱 4×42=168로 달라서 비례식이 아니에요."],[93,"□ 안에 알맞은 수가 가장 큰 것은 어느 것일까요?",["□：30=8：40","□：5=48：8","□：6=25：30","7：8=□：16"],1,2,"외항의 곱 = 내항의 곱으로 □를 구하면 □：30=8：40 → □=6, □：6=25：30 → □=5, 7：8=□：16 → □=14, □：5=48：8 → □=30. 가장 큰 수는 30이에요."],[94,"□ 안에 알맞은 수가 가장 큰 것은 어느 것일까요?",["18：21=□：7","3：7=15：□","□：3=14：6","15：5=□：1"],1,2,"외항의 곱 = 내항의 곱으로 □를 구하면 □：3=14：6 → □=7, 18：21=□：7 → □=6, 15：5=□：1 → □=3, 3：7=15：□ → □=35. 가장 큰 수는 35예요."],[95,"□ 안에 알맞은 수가 가장 큰 것은 어느 것일까요?",["5：15=□：21","1：□=8：16","6：18=□：3","4：32=1：□"],3,2,"외항의 곱 = 내항의 곱으로 □를 구하면 1：□=8：16 → □=2, 5：15=□：21 → □=7, 4：32=1：□ → □=8, 6：18=□：3 → □=1. 가장 큰 수는 8이에요."],[96,"□ 안에 알맞은 수가 가장 큰 것은 어느 것일까요?",["5：9=□：27","□：12=1：3","49：□=28：4","3：2=□：14"],3,2,"외항의 곱 = 내항의 곱으로 □를 구하면 3：2=□：14 → □=21, □：12=1：3 → □=4, 49：□=28：4 → □=7, 5：9=□：27 → □=15. 가장 큰 수는 21이에요."],[97,"□ 안에 알맞은 수가 가장 큰 것은 어느 것일까요?",["42：7=□：2","72：8=18：□","□：24=2：8","1：□=7：21"],0,2,"외항의 곱 = 내항의 곱으로 □를 구하면 □：24=2：8 → □=6, 42：7=□：2 → □=12, 1：□=7：21 → □=3, 72：8=18：□ → □=2. 가장 큰 수는 12예요."],[98,"□ 안에 알맞은 수가 가장 큰 것은 어느 것일까요?",["4：36=□：27","1：□=8：32","7：1=14：□","32：4=□：1"],3,2,"외항의 곱 = 내항의 곱으로 □를 구하면 7：1=14：□ → □=2, 4：36=□：27 → □=3, 1：□=8：32 → □=4, 32：4=□：1 → □=8. 가장 큰 수는 8이에요."],[99,"25：10=15：□는 비례식입니다. 바르게 설명한 것을 고르세요.",["외항은 10과 15입니다.","외항의 곱 25×□와 내항의 곱 10×15는 같습니다.","25：10과 15：□의 비율은 서로 다릅니다.","외항의 곱 25×□와 내항의 곱 10×15는 다릅니다."],1,3,"외항의 곱 25×□ = 내항의 곱 10×15 = 150, □ = 150÷25 = 6. 비례식은 비율이 같은 두 비를 =로 나타낸 식이에요. 외항은 25와 □예요."],[100,"35：5=21：□는 비례식입니다. 바르게 설명한 것을 고르세요.",["35：5와 21：□의 비율은 서로 다릅니다.","□ 안에 알맞은 수는 3입니다.","외항은 5와 21입니다.","외항의 곱 35×□와 내항의 곱 5×21은 다릅니다."],1,3,"외항의 곱 35×□ = 내항의 곱 5×21 = 105, □ = 105÷35 = 3. 비례식은 비율이 같은 두 비를 =로 나타낸 식이에요. 외항은 35와 □예요."],[101,"30：42=5：□는 비례식입니다. 바르게 설명한 것을 고르세요.",["30：42와 5：□의 비율은 서로 다릅니다.","30：42와 5：□의 비율은 같습니다.","□ 안에 알맞은 수는 17입니다.","외항의 곱 30×□와 내항의 곱 42×5는 다릅니다."],1,3,"외항의 곱 30×□ = 내항의 곱 42×5 = 210, □ = 210÷30 = 7. 비례식은 비율이 같은 두 비를 =로 나타낸 식이에요. 외항은 30과 □예요."],[102,"10：12=25：□는 비례식입니다. 바르게 설명한 것을 고르세요.",["□ 안에 알맞은 수는 27입니다.","외항의 곱 10×□와 내항의 곱 12×25는 같습니다.","외항은 12와 25입니다.","10：12와 25：□의 비율은 서로 다릅니다."],1,3,"외항의 곱 10×□ = 내항의 곱 12×25 = 300, □ = 300÷10 = 30. 비례식은 비율이 같은 두 비를 =로 나타낸 식이에요. 외항은 10과 □예요."],[103,"48：6=16：□는 비례식입니다. 바르게 설명한 것을 고르세요.",["외항은 6과 16입니다.","□ 안에 알맞은 수는 2입니다.","48：6과 16：□의 비율은 서로 다릅니다.","외항의 곱 48×□와 내항의 곱 6×16은 다릅니다."],1,3,"외항의 곱 48×□ = 내항의 곱 6×16 = 96, □ = 96÷48 = 2. 비례식은 비율이 같은 두 비를 =로 나타낸 식이에요. 외항은 48과 □예요."],[104,"8：6=24：□는 비례식입니다. 바르게 설명한 것을 고르세요.",["외항은 6과 24입니다.","8：6과 24：□의 비율은 같습니다.","외항의 곱 8×□와 내항의 곱 6×24는 다릅니다.","8：6과 24：□의 비율은 서로 다릅니다."],1,3,"외항의 곱 8×□ = 내항의 곱 6×24 = 144, □ = 144÷8 = 18. 비례식은 비율이 같은 두 비를 =로 나타낸 식이에요. 외항은 8과 □예요."],[105,"7：49=6：□는 비례식입니다. 바르게 설명한 것을 고르세요.",["외항의 곱 7×□와 내항의 곱 49×6은 같습니다.","외항은 49와 6입니다.","외항의 곱 7×□와 내항의 곱 49×6은 다릅니다.","7：49와 6：□의 비율은 서로 다릅니다."],0,3,"외항의 곱 7×□ = 내항의 곱 49×6 = 294, □ = 294÷7 = 42. 비례식은 비율이 같은 두 비를 =로 나타낸 식이에요. 외항은 7과 □예요."],[106,"9：12=6：□는 비례식입니다. 바르게 설명한 것을 고르세요.",["□ 안에 알맞은 수는 8입니다.","외항의 곱 9×□와 내항의 곱 12×6은 다릅니다.","외항은 12와 6입니다.","9：12와 6：□의 비율은 서로 다릅니다."],0,3,"외항의 곱 9×□ = 내항의 곱 12×6 = 72, □ = 72÷9 = 8. 비례식은 비율이 같은 두 비를 =로 나타낸 식이에요. 외항은 9와 □예요."],[107,"12：21=8：17이 비례식이 아닌 이유로 알맞은 것은?",["외항의 곱 204와 내항의 곱 168이 다르기 때문입니다.","후항 21과 17이 다르기 때문입니다.","외항의 곱 204와 내항의 곱 168이 같기 때문입니다.","전항 12와 8이 다르기 때문입니다."],0,3,"외항의 곱 12×17=204, 내항의 곱 21×8=168. 비례식이면 두 곱이 같아야 하는데 달라요."],[108,"36：4=4：36이 비례식이 아닌 이유로 알맞은 것은?",["전항 36과 4가 다르기 때문입니다.","외항의 합 72와 내항의 합 8이 다르기 때문입니다.","외항의 곱 1296과 내항의 곱 16이 같기 때문입니다.","외항의 곱 1296과 내항의 곱 16이 다르기 때문입니다."],3,3,"외항의 곱 36×36=1296, 내항의 곱 4×4=16. 비례식이면 두 곱이 같아야 하는데 달라요."],[109,"35：5=21：4가 비례식이 아닌 이유로 알맞은 것은?",["전항 35와 21이 다르기 때문입니다.","외항의 곱 140과 내항의 곱 105가 같기 때문입니다.","외항의 곱 140과 내항의 곱 105가 다르기 때문입니다.","외항의 합 39와 내항의 합 26이 다르기 때문입니다."],2,3,"외항의 곱 35×4=140, 내항의 곱 5×21=105. 비례식이면 두 곱이 같아야 하는데 달라요."],[110,"9：6=16：24가 비례식이 아닌 이유로 알맞은 것은?",["외항의 곱 216과 내항의 곱 96이 다르기 때문입니다.","외항의 합 33과 내항의 합 22가 다르기 때문입니다.","전항 9와 16이 다르기 때문입니다.","외항의 곱 216과 내항의 곱 96이 같기 때문입니다."],0,3,"외항의 곱 9×24=216, 내항의 곱 6×16=96. 비례식이면 두 곱이 같아야 하는데 달라요."],[111,"17：4=12：3이 비례식이 아닌 이유로 알맞은 것은?",["외항의 곱 51과 내항의 곱 48이 같기 때문입니다.","전항 17과 12가 다르기 때문입니다.","외항의 곱 51과 내항의 곱 48이 다르기 때문입니다.","외항의 합 20과 내항의 합 16이 다르기 때문입니다."],2,3,"외항의 곱 17×3=51, 내항의 곱 4×12=48. 비례식이면 두 곱이 같아야 하는데 달라요."],[112,"20：8=35：23이 비례식이 아닌 이유로 알맞은 것은?",["전항 20과 35가 다르기 때문입니다.","후항 8과 23이 다르기 때문입니다.","외항의 곱 460과 내항의 곱 280이 같기 때문입니다.","외항의 곱 460과 내항의 곱 280이 다르기 때문입니다."],3,3,"외항의 곱 20×23=460, 내항의 곱 8×35=280. 비례식이면 두 곱이 같아야 하는데 달라요."],[113,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 0.4：3=□：15",["15","0.08","0.4","2"],3,3,"외항의 곱과 내항의 곱은 같아요. 3×□ = 0.4×15 = 6, □ = 6÷3 = 2"],[114,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 1.2：□=6：10",["14.8","0.72","10","2"],3,3,"외항의 곱과 내항의 곱은 같아요. □×6 = 1.2×10 = 12, □ = 12÷6 = 2"],[115,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. □：4=3：24",["3","32","23","0.5"],3,3,"외항의 곱과 내항의 곱은 같아요. □×24 = 4×3 = 12, □ = 12÷24 = 0.5"],[116,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 2：0.6=10：□",["10","3","0.6","0.12"],1,3,"외항의 곱과 내항의 곱은 같아요. 2×□ = 0.6×10 = 6, □ = 6÷2 = 3"],[117,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 1.5：2=□：8",["1.5","12","8","6"],3,3,"외항의 곱과 내항의 곱은 같아요. 2×□ = 1.5×8 = 12, □ = 12÷2 = 6"],[118,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 1/2：3=□：12",["12","1/8","1/2","2"],3,3,"외항의 곱과 내항의 곱은 같아요. 3×□ = 1/2×12 = 6, □ = 6÷3 = 2"],[119,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 2/3：4=1：□",["1","11/3","6","8/3"],2,3,"외항의 곱과 내항의 곱은 같아요. 2/3×□ = 4×1 = 4, □ = 4÷2/3 = 6"],[120,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 5：□=20：1",["1","100","16","1/4"],3,3,"외항의 곱과 내항의 곱은 같아요. □×20 = 5×1 = 5, □ = 5÷20 = 1/4"],[121,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. □：1.2=2：3",["3.8","2","0.8","1.8"],2,3,"외항의 곱과 내항의 곱은 같아요. □×3 = 1.2×2 = 2.4, □ = 2.4÷3 = 0.8"],[122,"비례식의 성질을 이용하여 □ 안에 알맞은 수를 구하세요. 3/4：6=□：8",["3/4","9/16","8","1"],3,3,"외항의 곱과 내항의 곱은 같아요. 6×□ = 3/4×8 = 6, □ = 6÷6 = 1"],[123,"비례식 12：□=2：5에서 외항의 곱이 60입니다. □ 안에 알맞은 수는?",["30","12","5","60"],0,3,"외항의 곱 = 내항의 곱이므로 □×2 = 60, □ = 60÷2 = 30"],[124,"비례식 □：12=15：6에서 내항의 곱이 180입니다. □ 안에 알맞은 수는?",["30","15","60","12"],0,3,"외항의 곱 = 내항의 곱이므로 □×6 = 180, □ = 180÷6 = 30"],[125,"비례식 12：□=14：21에서 외항의 곱이 252입니다. □ 안에 알맞은 수는?",["12","18","23","21"],1,3,"외항의 곱 = 내항의 곱이므로 □×14 = 252, □ = 252÷14 = 18"],[126,"비례식 □：14=18：42에서 내항의 곱이 252입니다. □ 안에 알맞은 수는?",["18","6","12","14"],1,3,"외항의 곱 = 내항의 곱이므로 □×42 = 252, □ = 252÷42 = 6"],[127,"비례식 12：□=4：3에서 외항의 곱이 36입니다. □ 안에 알맞은 수는?",["3","12","9","18"],2,3,"외항의 곱 = 내항의 곱이므로 □×4 = 36, □ = 36÷4 = 9"],[128,"비례식 □：6=49：7에서 내항의 곱이 294입니다. □ 안에 알맞은 수는?",["84","42","49","6"],1,3,"외항의 곱 = 내항의 곱이므로 □×7 = 294, □ = 294÷7 = 42"]];
+
+// ===== 픽셀 눈싸움 규칙 (게임 화면과 서버 Code.gs가 똑같은 코드를 써요) =====
+// 체력 100. 눈덩이에 맞으면 체력이 줄고, 0이 되면 3초 동안 '꽁꽁'(얼음) 상태가 돼요.
+// 꽁꽁이 풀리면 체력 100으로 다시 뛰고, 2초 동안은 맞지 않아요(보호).
+// 점수 = 맞힌 눈덩이 × 10 + 꽁꽁 만든 수 × 30. 4분이 지나면 점수 순으로 순위를 정해요.
+// 강화(up): [장갑, 패딩, 부츠, 가방, 장인] 각 0~3단계. 피해 = 20 + 장갑×2 (왕눈덩이 ×1.5) − 맞은 사람 패딩×2
+var RULE = { HP: 100, SH: 40, DUR: 240000, BASE: 20, BIG: 1.5, FREEZE: 3000, SAFE: 2000, HEAL: 40, HIT_PT: 10, KO_PT: 30, MAXLV: 3, COLD: 4 };
+var UPCOST = [100, 250, 500];                     // 1·2·3단계로 올리는 데 드는 코인
+var RANK_COIN = { 1: [50], 2: [100, 40], 3: [100, 60, 30], 4: [100, 70, 45, 25], 5: [100, 75, 55, 40, 25], 6: [100, 80, 60, 45, 30, 20] };
+var OK_COIN = 2, OK_COIN_MAX = 20;                // 온라인: 정답 1개에 2코인(최대 20)
+var CPU_WIN_COIN = [15, 25, 40], CPU_OK_MAX = 10; // 컴퓨터 연습: 1위 보너스(쉬움·보통·어려움) + 정답 1개에 1코인(최대 10)
+function rUps_(u) {
+  var a = [];
+  for (var k = 0; k < 5; k++) { var v = Math.round(Number(u && u[k])); a.push(isFinite(v) ? Math.max(0, Math.min(RULE.MAXLV, v)) : 0); }
+  return a;
+}
+function rNew(n, ups) {
+  var S = { n: n, v: 0, hp: [], sh: [], fr: [], sf: [], hit: [], ko: [], dn: [], q: [], up: [], end: 0 };
+  for (var i = 0; i < n; i++) {
+    S.hp.push(RULE.HP); S.sh.push(0); S.fr.push(0); S.sf.push(0); S.hit.push(0); S.ko.push(0); S.dn.push(0); S.q.push(0);
+    S.up.push(rUps_(ups && ups[i]));
+  }
+  return S;
+}
+// 꽁꽁 시간이 지났으면 체력을 다시 채워요(시각 t로만 정해져서 모든 기기가 같아요).
+function rLive(S, i, t) { if (S.hp[i] <= 0 && !S.q[i] && t >= S.fr[i]) { S.hp[i] = RULE.HP; S.sh[i] = 0; } }
+function rFrozen(S, i, t) { return S.hp[i] <= 0 && t < S.fr[i]; }
+function rDmg(S, w, v, k) { return Math.max(5, Math.round((RULE.BASE + 2 * S.up[w][0]) * (k ? RULE.BIG : 1)) - 2 * S.up[v][1]); }
+// w가 던진 눈덩이가 v에게 맞았어요. k: 1이면 왕눈덩이
+function rHit(S, w, v, k, t) {
+  if (S.end || !(w >= 0 && w < S.n) || !(v >= 0 && v < S.n) || w === v || S.q[w] || S.q[v]) return { x: 'n' };
+  rLive(S, w, t); rLive(S, v, t);
+  if (S.hp[v] <= 0 || t < S.sf[v]) return { x: 'n' };
+  S.v++;
+  var dm = rDmg(S, w, v, k ? 1 : 0), a = Math.min(S.sh[v], dm);
+  S.sh[v] -= a; S.hp[v] -= dm - a; S.hit[w]++;
+  if (S.hp[v] <= 0) {
+    S.hp[v] = 0; S.sh[v] = 0; S.fr[v] = t + RULE.FREEZE; S.sf[v] = S.fr[v] + RULE.SAFE; S.ko[w]++; S.dn[v]++;
+    return { k: 1, dm: dm };
+  }
+  return { dm: dm };
+}
+// 서리용 냉기바람: w가 바람 속에서 dm만큼 체력이 닳아요(방패 먼저). 체력 1 아래로는 안 내려가서 바람만으로 꽁꽁이 되지는 않아요.
+function rCold(S, w, dm, t) {
+  if (S.end || !(w >= 0 && w < S.n) || S.q[w]) return { x: 'n' };
+  rLive(S, w, t);
+  if (S.hp[w] <= 0 || t < S.sf[w]) return { x: 'n' };
+  dm = Math.max(0, Math.min(RULE.COLD, Math.round(dm) || 0));
+  var a = Math.min(S.sh[w], dm), b = Math.min(dm - a, S.hp[w] - 1);
+  if (a + b <= 0) return { x: 'n' };
+  S.sh[w] -= a; S.hp[w] -= b; S.v++;
+  return { dm: a + b };
+}
+// 핫초코(hp 회복)·얼음 방패(sh). 체력이 가득 차면 남은 회복은 방패로 바뀌어요.
+function rHeal(S, w, hp, sh, t) {
+  if (S.end || !(w >= 0 && w < S.n) || S.q[w]) return { x: 'n' };
+  rLive(S, w, t);
+  if (S.hp[w] <= 0) return { x: 'n' };
+  hp = Math.max(0, Math.min(RULE.HEAL, Math.round(hp) || 0)); sh = Math.max(0, Math.min(RULE.SH, Math.round(sh) || 0));
+  var ah = Math.min(hp, RULE.HP - S.hp[w]);
+  S.hp[w] += ah; S.sh[w] = Math.min(RULE.SH, S.sh[w] + sh + (hp - ah)); S.v++;
+  return {};
+}
+function rQuit(S, w) {
+  if (!(w >= 0 && w < S.n) || S.q[w]) return {};
+  S.q[w] = 1; S.v++;
+  var k = 0; for (var i = 0; i < S.n; i++) if (!S.q[i]) k++;
+  if (k <= 1 && S.n > 1) S.end = 1;
+  return S.end ? { end: 1 } : {};
+}
+function rScore(S, i) { return S.hit[i] * RULE.HIT_PT + S.ko[i] * RULE.KO_PT; }
+// 순위: 나가지 않은 사람(점수 → 꽁꽁 만든 수 → 꽁꽁 당한 수 적은 순) → 나간 사람
+function rRank(S) {
+  var ids = [], rank = [];
+  for (var i = 0; i < S.n; i++) ids.push(i);
+  function key(i) { return [S.q[i] ? 0 : 1, rScore(S, i), S.ko[i], -S.dn[i]]; }
+  function same(a, b) { var A = key(a), B = key(b); return A[0] === B[0] && A[1] === B[1] && A[2] === B[2] && A[3] === B[3]; }
+  ids.sort(function (a, b) { var A = key(a), B = key(b); return B[0] - A[0] || B[1] - A[1] || B[2] - A[2] || B[3] - A[3] || a - b; });
+  ids.forEach(function (p, j) { rank[p] = j > 0 && same(ids[j - 1], p) ? rank[ids[j - 1]] : j + 1; });
+  return rank;
+}
+// 온라인 대전 코인: 순위 코인 + 정답 코인. 나가면 0
+function rCoin(n, rank, ok, quit) {
+  if (quit) return 0;
+  var t = RANK_COIN[Math.max(1, Math.min(6, n))] || [0];
+  return (t[Math.max(0, Math.min(t.length - 1, rank - 1))] || 0) + Math.min(OK_COIN_MAX, Math.max(0, ok | 0) * OK_COIN);
+}
+// 컴퓨터 연습 코인: 1위면 실력별 보너스 + 정답 코인(최대 10)
+function rCpuCoin(win, lv, ok) { return (win ? CPU_WIN_COIN[Math.max(0, Math.min(2, lv | 0))] : 0) + Math.min(CPU_OK_MAX, Math.max(0, ok | 0)); }
+
+
+// ===== 깃허브 페이지 + 파이어베이스판: 대전·코인·기록을 Firebase Realtime Database로 주고받아요 =====
+// firebase-config.js(선생님이 채우는 파일)의 FIREBASE_CONFIG로 연결해요. 모든 자료는 데이터베이스의 'snow/px/' 아래에 있어요(3D 눈싸움과 같은 파이어베이스를 함께 써도 방·코인이 섞이지 않아요).
+//   rooms/방번호 (방·선수·대전 상태 ps) · ev/방번호/순서 (명중·회복·나가기 사건) · st/방번호/선수 (위치·던진 눈덩이)
+//   hb/방번호/선수 (살아 있다는 신호) · lobby/반 (기다리는 방) · records/반 (대전 기록) · rank/반 (1위 횟수) · wallets/반/이름 (코인·장비)
+// 앱스크립트판(Code.gs)과 같은 함수 이름·결과 모양을 써서 게임 화면 코드는 그대로예요.
+var FBNet = (function () {
+  var MAXP = 6, AUTO_START = 20000, WAIT_STALE = 15000, LOBBY_AGE = 600000, LEAD = 5000, GRACE = 3000, ROOM_AGE = 6 * 3600000, CPU_DAY_MAX = 100;
+  var DB = null, err = '';
+  // ---- 데이터베이스 도구(Firebase compat SDK) ----
+  function firebaseDB() {
+    var cfg = window.FIREBASE_CONFIG || {};
+    if (!window.firebase || !firebase.database) throw new Error('파이어베이스 도구(lib/firebase-*.js)를 불러오지 못했어요.');
+    if (!cfg.databaseURL || /여기에|YOUR/.test(cfg.databaseURL)) throw new Error('firebase-config.js에 파이어베이스 설정(databaseURL 등)을 넣어 주세요.');
+    if (!firebase.apps.length) firebase.initializeApp(cfg);
+    var d = firebase.database(), off = 0;
+    d.ref('.info/serverTimeOffset').on('value', function (s) { off = s.val() || 0; });
+    function R(p) { return d.ref('snow/px/' + p); }
+    return {
+      now: function () { return Date.now() + off; },
+      get: function (p) { return R(p).once('value').then(function (s) { return s.val(); }); },
+      set: function (p, v) { return R(p).set(v); },
+      update: function (p, v) { return R(p).update(v); },
+      remove: function (p) { return R(p).remove(); },
+      push: function (p, v) { return R(p).push(v); },
+      // fn(지금 값) → 새 값(undefined면 그만두기). 처음 값이 비어 있으면 서버 값으로 다시 불러요.
+      txn: function (p, fn, allowNull) {
+        return R(p).transaction(function (cur) {
+          if (cur === null && !allowNull) return null;
+          return fn(cur);
+        }, null, false).then(function (r) { return { committed: r.committed, val: r.snapshot.val() }; });
+      },
+      watch: function (p, cb) { var r = R(p), h = r.on('value', function (s) { cb(s.val()); }); return function () { r.off('value', h); }; },
+      watchAdded: function (p, cb) { var r = R(p), h = r.on('child_added', function (s) { cb(s.key, s.val()); }); return function () { r.off('child_added', h); }; }
+    };
+  }
+  function db() {
+    if (DB) return DB;
+    try { DB = window.__DBMOCK || firebaseDB(); } catch (e) { err = e.message; throw e; }
+    return DB;
+  }
+  // ---- 작은 도구 ----
+  function clean(s, n) { return String(s == null ? '' : s).replace(/[<>\t\r\n"']/g, '').trim().replace(/^[=+\-@]+/, '').slice(0, n); }
+  function cls_(s) { return clean(String(s || '').replace(/\s+/g, ''), 20); }
+  function code_(s) { return String(s || '').replace(/\D/g, '').slice(0, 4); }
+  function key(s) { return s ? encodeURIComponent(s).replace(/\./g, '%2E') : '_'; }
+  function int_(v, lo, hi) { v = Math.round(Number(v)); return isFinite(v) ? Math.max(lo, Math.min(hi, v)) : lo; }
+  function idx(room, sid) { var p = room && room.p || []; for (var i = 0; i < p.length; i++) if (p[i].sid === sid) return i; return -1; }
+  function arr(a) { if (Array.isArray(a)) return a; if (!a) return []; var o = []; Object.keys(a).forEach(function (k) { o[+k] = a[k]; }); return o; }
+  // 데이터베이스는 빈 배열·빈 객체를 지워요. 읽은 방을 게임이 쓰는 모양으로 되돌려요.
+  function fixRoom(r) {
+    if (!r) return r;
+    r.p = arr(r.p).filter(Boolean).map(function (q) { q.up = rUps_(arr(q.up)); return q; });
+    if (r.ps) {
+      var S = r.ps;
+      ['hp', 'sh', 'fr', 'sf', 'hit', 'ko', 'dn', 'q'].forEach(function (k) { var a = arr(S[k]); for (var i = 0; i < S.n; i++) a[i] = a[i] || 0; S[k] = a; });
+      var u = arr(S.up); for (var i = 0; i < S.n; i++) u[i] = rUps_(arr(u[i])); S.up = u;
+      S.v = S.v || 0; S.end = S.end || 0;
+    }
+    r.lid = r.lid || {};
+    return r;
+  }
+  function today() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function who(p) { var n = clean(p.name, 10), sid = clean(p.sid, 40); return n && sid ? { n: n, sid: sid } : null; }
+  function walletGet(name, cls) {
+    return db().get('wallets/' + key(cls) + '/' + key(name)).then(function (w) {
+      w = w || {}; return { coin: Math.max(0, +w.coin || 0), up: rUps_(arr(w.up)), total: +w.total || 0, day: w.day || '', dayCpu: +w.dayCpu || 0 };
+    }).catch(function () { return { coin: 0, up: [0, 0, 0, 0, 0] }; });
+  }
+  function walletAdd(name, cls, add, cpu) {
+    var got = { add: 0, coin: 0, up: [0, 0, 0, 0, 0] };
+    return db().txn('wallets/' + key(cls) + '/' + key(name), function (w) {
+      w = w || {}; var d = today(), a = Math.max(0, Math.round(add) || 0);
+      if (w.day !== d) { w.day = d; w.dayCpu = 0; }
+      if (cpu) { a = Math.min(a, Math.max(0, CPU_DAY_MAX - (+w.dayCpu || 0))); w.dayCpu = (+w.dayCpu || 0) + a; }
+      w.name = name; w.cls = cls; w.coin = Math.max(0, +w.coin || 0) + a; w.total = (+w.total || 0) + a; w.up = rUps_(arr(w.up)); w.at = Date.now();
+      got = { add: a, coin: w.coin, up: w.up };
+      return w;
+    }, true).then(function () { return got; });
+  }
+  function start(room, now) { room.st = 'play'; room.startAt = now; room.ps = rNew(room.p.length, room.p.map(function (q) { return q.up; })); }
+
+  // ---- 방 만들기 · 매칭 ----
+  function newRoom(cls, w) {
+    var D = db(), tries = 0;
+    function attempt() {
+      tries++;
+      var c = String(1000 + Math.floor(Math.random() * 9000)), now = D.now(), made = null;
+      return D.get('rooms/' + c).then(function (old) {
+        if (old && old.st !== 'closed' && now - (old.at || 0) < ROOM_AGE) return null;
+        return Promise.all([D.remove('ev/' + c), D.remove('st/' + c), D.remove('hb/' + c), D.remove('res/' + c)]).then(function () {
+          return D.txn('rooms/' + c, function (cur) {
+            if (cur && cur.st !== 'closed' && now - (cur.at || 0) < ROOM_AGE) return undefined;
+            made = { c: c, cls: cls, st: 'wait', seed: Math.floor(Math.random() * 2147483646) + 1, p: [w], readyAt: 0, at: now, g: 0 };
+            return made;
+          }, true);
+        }).then(function (r) { return r.committed ? made : null; });
+      }).then(function (room) {
+        if (room) return Promise.all([D.set('hb/' + room.c + '/' + w.sid, now), D.set('lobby/' + key(cls) + '/' + room.c, now)]).then(function () { return room; });
+        return tries < 20 ? attempt() : null;
+      });
+    }
+    return attempt();
+  }
+  function addTo(code, w, check) {
+    var D = db(), out = null;
+    return D.txn('rooms/' + code, function (room) {
+      room = fixRoom(room); out = null;
+      if (!room || room.st === 'closed') { out = { ok: false, msg: code + '번 방이 없어요. 번호를 확인해 주세요.' }; return undefined; }
+      if (idx(room, w.sid) >= 0) { out = { ok: true, code: code }; return undefined; }
+      if (room.st !== 'wait') { out = { ok: false, msg: '이미 대전을 시작한 방이에요.' }; return undefined; }
+      if (room.p.length >= MAXP) { out = { ok: false, msg: '방이 꽉 찼어요(6명).' }; return undefined; }
+      if (check && !check(room)) { out = { ok: false, msg: '방 상태가 바뀌었어요.' }; return undefined; }
+      room.p.push(w);
+      if (room.p.length === 2) room.readyAt = D.now();
+      if (room.p.length >= MAXP) start(room, D.now());
+      out = { ok: true, code: code, started: room.st === 'play', cls: room.cls };
+      return room;
+    }).then(function () {
+      if (!out) out = { ok: false, msg: code + '번 방이 없어요. 번호를 확인해 주세요.' };
+      if (out.ok) { D.set('hb/' + code + '/' + w.sid, D.now()); if (out.started) D.remove('lobby/' + key(out.cls) + '/' + code); }
+      return out;
+    });
+  }
+  function lobbyRooms(cls) {
+    var D = db(), now = D.now();
+    return D.get('lobby/' + key(cls)).then(function (L) {
+      var codes = Object.keys(L || {}).filter(function (c) { return now - L[c] < LOBBY_AGE; });
+      return Promise.all(codes.map(function (c) {
+        return D.get('rooms/' + c).then(function (room) {
+          room = fixRoom(room);
+          if (!room || room.st !== 'wait' || room.p.length >= MAXP || room.cls !== cls) { if (!room || room.st !== 'wait') D.remove('lobby/' + key(cls) + '/' + c); return null; }
+          return D.get('hb/' + c + '/' + room.p[0].sid).then(function (h) { return now - (+h || 0) > WAIT_STALE ? null : room; });
+        });
+      })).then(function (list) { return list.filter(Boolean); });
+    });
+  }
+  // ---- 대전 중: 방·사건·친구 기록을 실시간으로 받아 두어요 ----
+  var Live = { code: null, room: null, st: {}, hb: {}, ev: {}, offs: [] };
+  function live(code) {
+    if (Live.code === code) return;
+    Live.offs.forEach(function (f) { try { f(); } catch (e) {} });
+    var D = db();
+    Live = { code: code, room: null, st: {}, hb: {}, ev: {}, offs: [], got: false };
+    Live.offs.push(D.watch('rooms/' + code, function (v) { Live.room = fixRoom(v); Live.got = true; }));
+    Live.offs.push(D.watch('st/' + code, function (v) { Live.st = v || {}; }));
+    Live.offs.push(D.watch('hb/' + code, function (v) { Live.hb = v || {}; }));
+    Live.offs.push(D.watchAdded('ev/' + code, function (k, v) { if (v) { if (!v.r) v.r = {}; Live.ev[k] = v; } }));
+  }
+  var F = {
+    createRoom: function (p) {
+      var w = who(p || {}); if (!w) return Promise.resolve({ ok: false, msg: '이름이 없어요. 새로 고침 뒤 다시 해 주세요.' });
+      var cls = cls_(p.cls);
+      return walletGet(w.n, cls).then(function (wl) { w.up = wl.up; return newRoom(cls, w); })
+        .then(function (room) { return room ? { ok: true, code: room.c } : { ok: false, msg: '빈 방 번호를 찾지 못했어요. 다시 눌러 주세요.' }; });
+    },
+    quickMatch: function (p) {
+      var w = who(p || {}); if (!w) return Promise.resolve({ ok: false, msg: '이름이 없어요. 새로 고침 뒤 다시 해 주세요.' });
+      var cls = cls_(p.cls);
+      return walletGet(w.n, cls).then(function (wl) {
+        w.up = wl.up;
+        return lobbyRooms(cls);
+      }).then(function (list) {
+        var mine = list.filter(function (r) { return idx(r, w.sid) >= 0; })[0];
+        if (mine) return { ok: true, code: mine.c };
+        list.sort(function (a, b) { return b.p.length - a.p.length; });
+        function next(i) {
+          if (i >= list.length) return newRoom(cls, w).then(function (room) { return room ? { ok: true, code: room.c } : { ok: false, msg: '빈 방 번호를 찾지 못했어요. 다시 눌러 주세요.' }; });
+          return addTo(list[i].c, w).then(function (r) { return r.ok ? r : next(i + 1); });
+        }
+        return next(0);
+      });
+    },
+    joinRoom: function (p) {
+      var w = who(p || {}); if (!w) return Promise.resolve({ ok: false, msg: '이름이 없어요. 새로 고침 뒤 다시 해 주세요.' });
+      return walletGet(w.n, cls_(p.cls)).then(function (wl) { w.up = wl.up; return addTo(code_(p.code), w); });
+    },
+    startRoom: function (p) {
+      var code = code_(p.code), sid = clean(p.sid, 40), D = db(), out = { ok: true }, cls = '';
+      return D.txn('rooms/' + code, function (room) {
+        room = fixRoom(room); out = { ok: true };
+        if (!room || room.st !== 'wait') return undefined;
+        if (idx(room, sid) !== 0) { out = { ok: false, msg: '방장만 시작할 수 있어요.' }; return undefined; }
+        if (room.p.length < 2) { out = { ok: false, msg: '2명 이상이어야 시작할 수 있어요.' }; return undefined; }
+        start(room, D.now()); cls = room.cls; out = { ok: true, started: 1 };
+        return room;
+      }).then(function () { if (out.started) D.remove('lobby/' + key(cls) + '/' + code); return { ok: out.ok, msg: out.msg }; });
+    },
+    leaveRoom: function (p) {
+      var code = code_(p.code), sid = clean(p.sid, 40), D = db(), cls = null;
+      return D.txn('rooms/' + code, function (room) {
+        room = fixRoom(room); cls = null;
+        if (!room || room.st !== 'wait') return undefined;
+        var i = idx(room, sid); if (i < 0) return undefined;
+        room.p.splice(i, 1);
+        if (!room.p.length) { room.st = 'closed'; cls = room.cls; } else if (room.p.length < 2) room.readyAt = 0;
+        return room;
+      }).then(function () { if (cls !== null) D.remove('lobby/' + key(cls) + '/' + code); return { ok: true }; });
+    },
+    listRooms: function (p) {
+      return lobbyRooms(cls_(p && p.cls)).then(function (list) {
+        return list.map(function (r) { return { c: r.c, n: r.p[0].n, k: r.p.length, at: r.at }; }).sort(function (a, b) { return b.at - a.at; }).slice(0, 12);
+      });
+    },
+    sync: function (p) {
+      var code = code_(p.code), sid = clean(p.sid, 40), D = db(), now = D.now();
+      live(code);
+      var first = Live.got ? Promise.resolve() : D.get('rooms/' + code).then(function (v) { if (!Live.got) { Live.room = fixRoom(v); } });
+      return first.then(function () {
+        var room = Live.room;
+        if (!room || room.st === 'closed') return { ok: false, gone: true, msg: '방이 없어졌어요.' };
+        var me = idx(room, sid);
+        if (me < 0) return { ok: false, gone: true, msg: room.st === 'wait' ? '대기실에서 빠졌어요(연결이 오래 끊김). 다시 들어가 주세요.' : '이 방의 선수가 아니에요.' };
+        Live.hb[sid] = now;
+        var writes = [];
+        if (now - (Live.hbAt || 0) > 900) { Live.hbAt = now; writes.push(D.set('hb/' + code + '/' + sid, now)); }   // 살아 있다는 신호는 약 1초마다
+        if (room.st === 'play' && p.k && typeof p.k === 'object') {
+          var k = { p: p.k.p || [], s: p.k.s || [], ok: p.k.ok | 0, f: p.k.f | 0, st: now };
+          Live.st[sid] = k;
+          writes.push(D.set('st/' + code + '/' + sid, k));
+        }
+        var ages = room.p.map(function (q) { var h = +Live.hb[q.sid] || 0; return q.sid === sid ? 0 : (h ? now - h : 0); });
+        var chain = Promise.all(writes);
+        if (room.st === 'wait') {
+          var stale = ages.some(function (a, i) { return i !== me && a > WAIT_STALE; });
+          var due = room.p.length >= 2 && room.readyAt && now - room.readyAt >= AUTO_START;
+          if (stale || due) {
+            var cls = room.cls, started = false;
+            chain = chain.then(function () {
+              return D.txn('rooms/' + code, function (r2) {
+                r2 = fixRoom(r2); started = false;
+                if (!r2 || r2.st !== 'wait') return undefined;
+                r2.p = r2.p.filter(function (q) { return q.sid === sid || now - (+Live.hb[q.sid] || now) <= WAIT_STALE; });
+                if (r2.p.length >= 2 && r2.readyAt && now - r2.readyAt >= AUTO_START) { start(r2, D.now()); started = true; }
+                else if (!r2.p.length) r2.st = 'closed';
+                else if (r2.p.length < 2) r2.readyAt = 0;
+                return r2;
+              });
+            }).then(function (r) { if (r.committed && r.val) Live.room = fixRoom(r.val); if (started) D.remove('lobby/' + key(cls) + '/' + code); });
+          }
+        }
+        return chain.then(function () {
+          room = Live.room; me = idx(room, sid);
+          if (me < 0) return { ok: false, gone: true, msg: '대기실에서 빠졌어요. 다시 들어가 주세요.' };
+          var since = +p.since || 0, fires = [], ks = [];
+          if (room.st === 'play') {
+            for (var g = since + 1; Live.ev[g]; g++) fires.push(Live.ev[g]);
+            ks = room.p.map(function (q) { var s = Live.st[q.sid]; return s ? { p: arr(s.p).map(arr), s: arr(s.s).map(arr), ok: s.ok | 0, f: s.f | 0, st: s.st } : null; });
+          }
+          return {
+            ok: true, st: room.st, you: me, names: room.p.map(function (q) { return q.n; }), seed: room.st === 'play' ? room.seed : 0,
+            autoIn: room.st === 'wait' && room.readyAt ? Math.max(0, AUTO_START - (now - room.readyAt)) : 0,
+            startAt: room.startAt || 0, lead: LEAD, dur: RULE.DUR, grace: GRACE,
+            fires: fires, ks: ks, ps: room.st === 'play' ? JSON.parse(JSON.stringify(room.ps)) : null, ages: ages, now: D.now()
+          };
+        });
+      });
+    },
+    // 명중(h)·회복(u)·나가기(q): 방 상태(ps)를 한 번에 바꾸고 순서 번호(g)를 매겨요.
+    shoot: function (p) {
+      var code = code_(p.code), sid = clean(p.sid, 40), e = p.e, D = db();
+      if (!e || typeof e !== 'object' || ['h', 'u', 'q', 'c'].indexOf(e.t) < 0) return Promise.resolve({ ok: false, msg: '잘못된 기록이에요.' });
+      var id = Math.floor(Number(e.id)); if (!(id > 0)) return Promise.resolve({ ok: false, msg: '잘못된 기록이에요.' });
+      var out = null;
+      return D.txn('rooms/' + code, function (room) {
+        room = fixRoom(room); out = null;
+        if (!room || room.st !== 'play') { out = { ok: false, gone: true, msg: '대전 중인 방이 아니에요.' }; return undefined; }
+        var me = idx(room, sid);
+        if (me < 0) { out = { ok: false, msg: '이 방의 선수가 아니에요.' }; return undefined; }
+        var L = room.lid[me];
+        if (L && L.id === id) { out = { ok: true, dupG: L.g }; return undefined; }
+        if (L && L.id > id) { out = { ok: false, late: true }; return undefined; }
+        var now = D.now(), S = room.ps, t0 = room.startAt + LEAD;
+        if (e.t !== 'q' && (S.end || now > t0 + RULE.DUR + GRACE || now < t0)) { out = { ok: false, late: true, msg: '대전 시간이 아니에요.' }; return undefined; }
+        var ev = { t: e.t, id: id, w: me, s: now, v0: S.v };
+        if (e.t === 'h') { ev.to = int_(e.to, 0, MAXP - 1); ev.k = int_(e.k, 0, 1); ev.r = ev.to < room.p.length ? rHit(S, me, ev.to, ev.k, now) : { x: 'n' }; }
+        else if (e.t === 'u') { ev.hp = int_(e.hp, 0, RULE.HEAL); ev.sh = int_(e.sh, 0, RULE.SH); ev.r = rHeal(S, me, ev.hp, ev.sh, now); }
+        else if (e.t === 'c') { ev.dm = int_(e.dm, 0, RULE.COLD); ev.r = rCold(S, me, ev.dm, now); }
+        else ev.r = rQuit(S, me);
+        ev.v = S.v; ev.g = (room.g || 0) + 1; room.g = ev.g;
+        room.lid[me] = { id: id, g: ev.g };
+        out = { ok: true, ev: ev };
+        return room;
+      }).then(function () {
+        if (!out) return { ok: false, gone: true, msg: '대전 중인 방이 아니에요.' };
+        if (out.dupG) return D.get('ev/' + code + '/' + out.dupG).then(function (v) { if (v && !v.r) v.r = {}; return v ? { ok: true, ev: v } : { ok: false, late: true }; });
+        if (out.ok) { Live.ev[out.ev.g] = out.ev; return D.set('ev/' + code + '/' + out.ev.g, out.ev).then(function () { return out; }); }
+        return out;
+      });
+    },
+    // 끝나면 각자 결과 한 줄을 남기고 코인을 받아요(한 방에서 한 사람당 한 번).
+    saveResult: function (p) {
+      var code = code_(p.code), sid = clean(p.sid, 40), D = db();
+      return D.get('res/' + code + '/' + sid).then(function (done) {
+        if (done) { done.msg = '이미 기록했어요.'; return done; }
+        return D.get('rooms/' + code).then(function (room) {
+          room = fixRoom(room);
+          if (!room) return { ok: false, msg: '방 정보가 없어서 기록하지 못했어요.' };
+          var me = idx(room, sid);
+          if (me < 0 || room.st !== 'play') return { ok: false, msg: '이 방의 선수가 아니에요.' };
+          var t0 = room.startAt + LEAD, playing = !room.ps.end && D.now() < t0 + RULE.DUR, quit = !!room.ps.q[me] || !!p.quit || playing;
+          var step = quit && !room.ps.q[me] ? D.txn('rooms/' + code, function (r2) { r2 = fixRoom(r2); if (!r2 || !r2.ps || r2.ps.q[me]) return undefined; rQuit(r2.ps, me); return r2; }).then(function (r) { if (r.val) room = fixRoom(r.val); }) : Promise.resolve();
+          return step.then(function () {
+            var S = room.ps, n = room.p.length, rank = rRank(S), ok = int_(p.ok, 0, 999);
+            var ones = rank.filter(function (r) { return r === 1; }).length;
+            var res = quit ? '패(나감)' : rank[me] === 1 ? (ones > 1 ? '공동 1위' : '승') : '패';
+            var coin = rCoin(n, rank[me], ok, quit), name = room.p[me].n, cls = room.cls;
+            var row = { at: Date.now(), cls: cls, room: code, name: name, with: room.p.filter(function (q, i) { return i !== me; }).map(function (q) { return q.n; }).join(', '),
+              n: n, rank: rank[me] + '/' + n, res: res, score: rScore(S, me), hit: S.hit[me], ko: S.ko[me], dn: S.dn[me], ok: ok + '/' + int_(p.nq, 0, 999), coin: coin, sid: sid };
+            return D.txn('res/' + code + '/' + sid, function (cur) { return cur ? undefined : { pending: 1 }; }, true).then(function (t) {
+              if (!t.committed) return D.get('res/' + code + '/' + sid).then(function (d) { d = d || {}; d.ok = true; d.msg = '이미 기록했어요.'; return d; });
+              return D.push('records/' + key(cls), row).then(function () { return walletAdd(name, cls, coin, false); }).then(function (w) {
+                return D.txn('rank/' + key(cls) + '/' + key(name), function (r) { r = r || { name: name, cls: cls, w: 0, g: 0 }; r.g++; if (res === '승') r.w++; return r; }, true).then(function () {
+                  var out = { ok: true, msg: '대전 기록을 저장했어요! (' + rank[me] + '위)', add: w.add, coin: w.coin, up: w.up };
+                  return D.set('res/' + code + '/' + sid, out).then(function () { return out; });
+                });
+              });
+            });
+          });
+        });
+      });
+    },
+    getRanking: function (cls) {
+      cls = cls_(typeof cls === 'object' ? cls && cls.cls : cls);
+      return db().get('rank/' + key(cls)).then(function (o) {
+        return Object.keys(o || {}).map(function (k) { return o[k]; }).sort(function (a, b) { return b.w - a.w || a.g - b.g; }).slice(0, 10);
+      });
+    },
+    getWallet: function (p) {
+      var name = clean(p.name, 10); if (!name) return Promise.resolve({ ok: false, msg: '이름이 없어요.' });
+      return walletGet(name, cls_(p.cls)).then(function (w) { return { ok: true, coin: w.coin, up: w.up }; });
+    },
+    buyUp: function (p) {
+      var name = clean(p.name, 10), cls = cls_(p.cls), k = int_(p.k, 0, 4), out = null;
+      if (!name) return Promise.resolve({ ok: false, msg: '이름이 없어요.' });
+      return db().txn('wallets/' + key(cls) + '/' + key(name), function (w) {
+        if (!w) { out = { ok: false, msg: '코인이 아직 없어요. 대전에서 이기면 코인을 받아요.', coin: 0, up: [0, 0, 0, 0, 0] }; return undefined; }
+        var up = rUps_(arr(w.up)), l = up[k], coin = Math.max(0, +w.coin || 0);
+        if (l >= RULE.MAXLV) { out = { ok: false, msg: '이미 최고 단계예요.', coin: coin, up: up }; return undefined; }
+        if (coin < UPCOST[l]) { out = { ok: false, msg: '코인이 모자라요. (' + UPCOST[l] + '코인 필요)', coin: coin, up: up }; return undefined; }
+        up[k] = l + 1; w.up = up; w.coin = coin - UPCOST[l]; w.at = Date.now();
+        out = { ok: true, coin: w.coin, up: up };
+        return w;
+      }).then(function () { return out || { ok: false, msg: '코인이 아직 없어요. 대전에서 이기면 코인을 받아요.', coin: 0, up: [0, 0, 0, 0, 0] }; });
+    },
+    saveCpu: function (p) {
+      var name = clean(p.name, 10); if (!name) return Promise.resolve({ ok: false, msg: '이름이 없어요.' });
+      var add = rCpuCoin(!!Number(p.win), int_(p.lv, 0, 2), int_(p.ok, 0, 999));
+      return walletAdd(name, cls_(p.cls), add, true).then(function (w) { return { ok: true, add: w.add, coin: w.coin, up: w.up, capped: w.add < add }; });
+    },
+    // 선생님: what = 'rec' 기록 · 'coin' 코인 · 'csv' 기록 내려받기 · 'room' 지난 방 정리
+    teacherReset: function (p) {
+      var pin = String(p.pin || ''), cls = cls_(p.cls), what = p.what, D = db();
+      var PIN = String(window.TEACHER_PIN || '');
+      if (!PIN) return Promise.resolve({ ok: false, msg: 'firebase-config.js의 TEACHER_PIN이 비어 있어서 선생님 메뉴가 꺼져 있어요.' });
+      if (pin !== PIN) return Promise.resolve({ ok: false, msg: '비밀번호가 틀렸어요.' });
+      if (what === 'room') return Promise.all(['rooms', 'ev', 'st', 'hb', 'lobby', 'res'].map(function (k) { return D.remove(k); })).then(function () { return { ok: true, msg: '지난 대전 방을 모두 정리했어요. (대전 중인 방도 끊겨요)' }; });
+      var base = what === 'coin' ? 'wallets' : 'records';
+      return D.get(cls ? base + '/' + key(cls) : base).then(function (data) {
+        var rows = [];
+        function addRec(o) { Object.keys(o || {}).forEach(function (k) { rows.push(o[k]); }); }
+        if (what === 'coin') { if (cls) addRec(data); else Object.keys(data || {}).forEach(function (c) { addRec(data[c]); }); }
+        else { if (cls) addRec(data); else Object.keys(data || {}).forEach(function (c) { addRec(data[c]); }); }
+        rows.sort(function (a, b) { return (a.at || 0) - (b.at || 0); });
+        var csv = what === 'coin' ? toCsv(['이름', '반 코드', '코인', '🧤 장갑', '🧥 패딩', '👢 부츠', '🎒 가방', '❄️ 장인', '받은 코인(누적)', '마지막 갱신'], rows.map(function (w) { var u = rUps_(arr(w.up)); return [w.name, w.cls, w.coin].concat(u).concat([w.total, new Date(w.at || 0).toLocaleString()]); }))
+          : toCsv(['시각', '반 코드', '방', '이름', '함께한 친구', '인원', '순위', '결과', '점수', '명중', '꽁꽁 만든 수', '꽁꽁 당한 수', '정답', '받은 코인', '등록번호'], rows.map(function (r) { return [new Date(r.at).toLocaleString(), r.cls, r.room, r.name, r.with, r.n, r.rank, r.res, r.score, r.hit, r.ko, r.dn, r.ok, r.coin, r.sid]; }));
+        var fname = (what === 'coin' ? '픽셀눈싸움코인_' : '픽셀눈싸움기록_') + (cls || '전체') + '_' + today() + '.csv';
+        download(fname, csv);
+        if (what === 'csv') return { ok: true, msg: rows.length + '줄을 ' + fname + '로 내려받았어요.' };
+        var dels = cls ? [D.remove(base + '/' + key(cls))] : [D.remove(base)];
+        if (what === 'rec') dels.push(D.remove(cls ? 'rank/' + key(cls) : 'rank'));
+        return Promise.all(dels).then(function () { return { ok: true, msg: (cls ? '반 코드 ' + cls : '전체') + (what === 'coin' ? ' 코인·장비 ' : ' 기록 ') + rows.length + '개를 지웠어요. 지우기 전 내용은 ' + fname + '로 내려받았어요.' }; });
+      });
+    }
+  };
+  function toCsv(head, rows) {
+    function c(v) { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+    return '﻿' + [head].concat(rows).map(function (r) { return r.map(c).join(','); }).join('\r\n');
+  }
+  function download(name, text) {
+    try { var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000); } catch (e) {}
+  }
+  return {
+    delay: 450, syncMs: 180,
+    call: function (fn, arg) {
+      if (!F[fn]) return Promise.reject(new Error('없는 기능: ' + fn));
+      try { db(); } catch (e) { return Promise.reject(e); }
+      var to = new Promise(function (_, rej) { setTimeout(function () { rej(new Error('20초 안에 파이어베이스 응답이 없어요.')); }, 20000); });
+      return Promise.race([Promise.resolve().then(function () { return F[fn](arg || {}); }), to]);
+    },
+    error: function () { try { db(); return ''; } catch (e) { return e.message; } }
+  };
+})();
+var Net = FBNet;
+// 선생님 메뉴: 두 번 눌러야 실행돼요(내려받기는 한 번).
+function teacherInit() {
+  ['tBtn', 'tBtn2', 'tBtn3', 'tBtn4'].forEach(function (id) {
+    var btn = document.getElementById(id); if (!btn) return;
+    var label = btn.textContent, what = btn.getAttribute('data-what'), armed = 0;
+    btn.onclick = function () {
+      var pin = document.getElementById('tPin').value, cls = cleanCls(document.getElementById('tCls').value), msg = document.getElementById('tMsg');
+      if (!pin) { msg.textContent = '비밀번호를 써 주세요.'; return; }
+      if (what !== 'csv' && Date.now() - armed > 6000) {
+        armed = Date.now();
+        btn.textContent = '정말 지울까요? 한 번 더 누르세요 (' + (what === 'room' ? '모든 방' : cls ? '반 코드 ' + cls : '전체') + ')';
+        setTimeout(function () { if (armed && Date.now() - armed >= 6000) btn.textContent = label; }, 6100);
+        return;
+      }
+      armed = 0; btn.disabled = true; btn.textContent = '처리하는 중…';
+      Net.call('teacherReset', { pin: pin, cls: cls, what: what }).then(function (r) {
+        btn.disabled = false; btn.textContent = label;
+        msg.textContent = (r && r.ok ? '✅ ' : '❌ ') + (r && r.msg ? r.msg : ''); if (r && r.ok) { loadRank(); walletLoad(); }
+      }).catch(function (e) { btn.disabled = false; btn.textContent = label; msg.textContent = '❌ 오류: ' + (e && e.message ? e.message : String(e)); });
+    };
+  });
+}
+
+
+// ===== 설정 (길이는 칸: 1칸 = 16픽셀 · 시간은 초 · 위쪽이 +y) =====
+var COL = ['#ff4d6d', '#3f8fff', '#2fcf7a', '#ffc23c', '#a66bff', '#ff8a3d'];
+var COLD = ['#a3163c', '#1650a8', '#13784a', '#a87b00', '#5f2fb8', '#b2541a'];
+var DOT = ['🔴', '🔵', '🟢', '🟡', '🟣', '🟠'];
+var AMMO = { 1: 2, 2: 3, 3: 4 }, AMMO_MAX0 = 12, AMMO_START0 = 2;   // 맞히면 생기는 눈덩이(개)
+var QTAG = { 1: '⭐ 외항·내항 · ⚪+2', 2: '⭐⭐ 비례식의 성질 · ⚪+3', 3: '⭐⭐⭐ 도전 · ⚪+4' };
+var STUN_T = 2, IDLE_T = 30, IDLE_FZ = 3, IDLE_WARN = 20,   // 30초 동안 문제를 안 풀면 3초 얼음(20초부터 알려 줘요)
+  WRONG_LOCK = 3, OK_SHOW = 0.6, STREAK_ITEM = 3;
+var TW = 120, TH = 15, TILE = 16;                                     // 눈밭: 가로 120칸 × 세로 15칸
+var PW = 0.7, PH = 1.4;                                               // 몸 크기(칸)
+var SPEED = 7.2, SLED_K = 1.45, SLED_T = 8, BIG_N = 3;
+var GRAV = 44, JUMP = 16, SPRING = 25.5, FALL_MAX = 26, COYOTE = 0.1, JBUF = 0.13;   // 점프 높이 약 2.9칸
+var BGRAV = 16, BV = 17, RANGE = 21, FIRE_CD = 0.33, HAND = 1.0;      // 눈덩이 중력·빠르기·사거리(칸), 던지는 손 높이
+var DELAY = (Net && Net.delay) || 1500;                               // 온라인: 친구 모습은 조금 전(파이어베이스 0.45초) 기록을 부드럽게 이어서 보여 줘요
+var ITEMS = {
+  shield: { e: '🛡️', n: '얼음 방패 +40' }, heal: { e: '☕', n: '핫초코 회복 +40' },
+  big: { e: '🌕', n: '왕눈덩이 3개' }, sled: { e: '🛷', n: '썰매 신발 8초' }
+};
+// 장비 강화(0~3단계): 코인으로 올려요. 0 장갑 · 1 패딩 · 2 부츠 · 3 가방 · 4 장인
+var UPG = [
+  { e: '🧤', n: '눈덩이 장갑', d: function (l) { return '맞힌 눈덩이 피해 ' + (RULE.BASE + 2 * l) + (l < 3 ? ' → ' + (RULE.BASE + 2 * l + 2) : ''); } },
+  { e: '🧥', n: '두툼 패딩', d: function (l) { return '받는 피해 −' + 2 * l + (l < 3 ? ' → −' + (2 * l + 2) : ''); } },
+  { e: '👢', n: '눈길 부츠', d: function (l) { return '달리기 빠르기 +' + 6 * l + '%' + (l < 3 ? ' → +' + (6 * l + 6) + '%' : ''); } },
+  { e: '🎒', n: '눈 가방', d: function (l) { return '최대 눈 ' + (AMMO_MAX0 + 2 * l) + '개 · 시작 눈 ' + (AMMO_START0 + l) + '개' + (l < 3 ? ' → ' + (AMMO_MAX0 + 2 * l + 2) + '개 · ' + (AMMO_START0 + l + 1) + '개' : ''); } },
+  { e: '❄️', n: '눈 뭉치기 장인', d: function (l) { var t = ['없음', '⭐⭐⭐ 정답 +1', '⭐⭐ 이상 정답 +1', '모든 정답 +1']; return '정답 보너스 눈: ' + t[l] + (l < 3 ? ' → ' + t[l + 1] : ''); } }
+];
+// 컴퓨터 실력 [쉬움, 보통, 어려움]: 한 문제 푸는 시간(초), 맞힐 확률, 조준 흔들림(칸), 앞서 노리기, 던지는 간격(초), 강화 단계
+var BOT = [
+  { t: [8, 14], acc: 0.6, aim: 1.4, lead: 0.4, gap: 1.0, up: [0, 0, 0, 0, 0] },
+  { t: [5.5, 10], acc: 0.74, aim: 0.8, lead: 0.7, gap: 0.7, up: [1, 1, 0, 1, 0] },
+  { t: [3.5, 7], acc: 0.88, aim: 0.4, lead: 0.9, gap: 0.45, up: [2, 2, 1, 2, 1] }
+];
+
+// ===== 도구 =====
+function $(s) { return document.querySelector(s); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function mathHtml(s) { return esc(s).replace(/(\d+)\/(\d+)/g, '<span class="fr"><span>$1</span><span>$2</span></span>'); }
+var store = {
+  get: function (k, d) { try { var v = localStorage.getItem('pxsnow_' + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set: function (k, v) { try { localStorage.setItem('pxsnow_' + k, JSON.stringify(v)); } catch (e) {} }
+};
+function cleanName(s, n) { return String(s == null ? '' : s).replace(/[<>\t\r\n"']/g, '').trim().slice(0, n); }
+function cleanCls(s) { return cleanName(String(s || '').replace(/\s+/g, ''), 20); }
+function show(id) { ['home', 'lobby', 'game', 'result'].forEach(function (k) { $('#' + k).classList.toggle('hide', k !== id); }); window.scrollTo(0, 0); }
+var toastT = 0;
+function toast(msg, sec) { var t = $('#toast'); t.textContent = msg; t.classList.remove('hide'); toastT = (sec || 1.8); }
+function shuffle(a) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+function rnd(a, b) { return a + Math.random() * (b - a); }
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function lerp(a, b, u) { return a + (b - a) * u; }
+function dist(ax, ay, bx, by) { var dx = ax - bx, dy = ay - by; return Math.sqrt(dx * dx + dy * dy); }
+function fmtT(ms) { ms = Math.max(0, ms); var m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000); return m + ':' + (s < 10 ? '0' : '') + s; }
+function approach(v, t, d) { return v < t ? Math.min(t, v + d) : Math.max(t, v - d); }
+// 씨앗이 같으면 모든 기기에서 똑같은 눈밭이 만들어져요.
+function mulberry(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+// 짧은 효과음(소리가 안 나는 기기에서도 게임은 그대로 돌아가요)
+var Snd = { ac: null };
+function beep(kind) {
+  try {
+    if (!Snd.ac) { var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; Snd.ac = new AC(); }
+    var ac = Snd.ac, t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+    var spec = { ok: [660, 990, 0.18, 'square'], no: [220, 140, 0.25, 'sawtooth'], item: [520, 1240, 0.3, 'triangle'], hit: [300, 90, 0.25, 'triangle'],
+      shot: [500, 260, 0.1, 'triangle'], empty: [160, 140, 0.1, 'square'], go: [880, 880, 0.25, 'square'], tick: [440, 440, 0.12, 'square'],
+      kill: [400, 1400, 0.45, 'triangle'], jump: [300, 620, 0.12, 'square'], boing: [220, 880, 0.3, 'triangle'], roar: [180, 60, 0.9, 'sawtooth'], wind: [900, 500, 0.25, 'triangle'], splat: [260, 120, 0.09, 'sawtooth'], coin: [990, 1560, 0.25, 'square'] }[kind] || [440, 440, 0.1, 'square'];
+    o.type = spec[3]; o.frequency.setValueAtTime(spec[0], t); o.frequency.exponentialRampToValueAtTime(spec[1], t + spec[2]);
+    g.gain.setValueAtTime(kind === 'shot' || kind === 'splat' || kind === 'jump' ? 0.03 : 0.06, t); g.gain.exponentialRampToValueAtTime(0.0001, t + spec[2]);
+    o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + spec[2] + 0.02);
+  } catch (e) {}
+}
+
+// ===== 눈밭 만들기 (씨앗으로) =====
+// 칸 g[x][y] (y = 0이 맨 아래): 0 빈칸 · 1 땅(눈 덮인 흙) · 2 얼음 발판(아래에서 뛰어 올라설 수 있어요) · 3 눈 벽돌(몸과 눈덩이를 막아요)
+//   4 눈 트램펄린(밟으면 높이 튀어 올라요) · 5 빙판(미끄러워요)
+// 눈밭은 여러 구역을 이어 붙여 만들어요: 언덕 · 탑과 굴 · 골짜기 다리 · 눈 요새 · 계단 · 트램펄린 · 빙판
+// 발판은 모두 2칸씩 올라가는 계단처럼 놓아서(점프 높이 약 2.9칸) 밟고 위로 올라갈 수 있어요.
+var ZONE_NAME = { hills: '언덕', tower: '탑과 굴', valley: '골짜기 다리', fort: '눈 요새', stairs: '하늘 계단', spring: '트램펄린', ice: '빙판' };
+function buildMap(seed, n) {
+  var R = mulberry(seed), g = [], gh = [], x, y, k;
+  for (x = 0; x < TW; x++) { var col = []; for (y = 0; y < TH; y++) col.push(0); g.push(col); gh.push(2); }
+  var M = { g: g, gh: gh, sp: [], deco: [], trees: [], zones: [], sky: seed % 3 };
+  function ri(a, b) { return a + Math.floor(R() * (b - a + 1)); }
+  function fill(x0, x1, h) { for (var xx = x0; xx < x1 && xx < TW; xx++) gh[xx] = h; }
+  function plat(x0, len, surf) {          // 윗면 높이 surf(그 위에 서요)인 얼음 발판
+    var py = surf - 1; if (py < 1 || py > TH - 3) return;
+    for (var xx = Math.max(1, x0); xx < Math.min(TW - 1, x0 + len); xx++) if (!g[xx][py]) g[xx][py] = 2;
+  }
+  // 구역 순서: 언덕과 특별 구역을 번갈아, 특별 구역은 섞어서 골고루
+  var kinds = shuffleR(['tower', 'valley', 'fort', 'stairs', 'spring', 'ice'], R), zi = 0, h = 2;
+  for (x = 1; x < TW - 1;) {
+    var kind = M.zones.length % 2 === 0 ? 'hills' : kinds[zi++ % kinds.length];
+    var w = kind === 'hills' ? ri(6, 10) : ri(13, 17);
+    if (x + w > TW - 1 - 6) { w = TW - 1 - x; if (w < 13) kind = 'hills'; }
+    M.zones.push({ k: kind, x0: x, x1: x + w, h: h });
+    var z = M.zones[M.zones.length - 1];
+    if (kind === 'hills') {
+      for (var xx = x; xx < x + w;) { var s = ri(3, 5); h = clamp(h + [-1, 0, 1, 1, -1][ri(0, 4)], 1, 4); fill(xx, Math.min(x + w, xx + s), h); xx += s; }
+      if (R() < 0.6) { var px0 = x + ri(1, Math.max(1, w - 5)), pl = ri(3, 4), mh = 0; for (var q2 = px0; q2 < px0 + pl; q2++) mh = Math.max(mh, gh[q2]); z.pl = [px0, pl]; }
+    } else {
+      h = kind === 'valley' ? 3 : clamp(h, 2, 3); z.h = h; fill(x, x + w, h);
+    }
+    x += w;
+  }
+  M.zones.forEach(function (z) { if (z.pl) { var mh = 0; for (var q3 = z.pl[0]; q3 < z.pl[0] + z.pl[1]; q3++) mh = Math.max(mh, gh[q3]); z.plS = mh + 2; } });
+  gh[0] = gh[TW - 1] = TH;
+  for (x = 0; x < TW; x++) for (y = 0; y < Math.min(TH, gh[x]); y++) g[x][y] = 1;
+  // 특별 구역 채우기
+  M.zones.forEach(function (z) {
+    if (z.plS) plat(z.pl[0], z.pl[1], z.plS);
+    var a = z.x0, b = z.x1, w = b - a, h = z.h, c = Math.floor((a + b) / 2), xx, yy;
+    if (z.k === 'tower') {
+      // 가운데 떠 있는 땅 덩어리(아래는 굴), 양쪽 계단 발판으로 꼭대기까지
+      var tw = 4, top = h + 7;
+      for (xx = c - 2; xx < c - 2 + tw; xx++) for (yy = h + 2; yy < top; yy++) g[xx][yy] = 1;
+      plat(c - 6, 3, h + 2); plat(c - 9, 3, h + 4); plat(c - 6, 3, h + 6);
+      plat(c + 3, 3, h + 2); plat(c + 6, 3, h + 4); plat(c + 3, 3, h + 6);
+      z.top = top;
+    } else if (z.k === 'valley') {
+      // 가운데가 2칸 꺼진 골짜기(눈 벽돌 엄폐), 위로 다리 발판과 망루
+      for (xx = a + 3; xx < b - 3; xx++) { gh[xx] = h - 2; for (yy = h - 2; yy < h; yy++) g[xx][yy] = 0; }
+      plat(a + 3, w - 6, h + 2);                       // 다리
+      plat(c - 1, 3, h + 4);
+      z.wall = [c - 3, c + 2];
+    } else if (z.k === 'fort') {
+      // 눈 벽돌 요새: 양쪽 벽(2칸) + 지붕 발판 + 망루
+      [a + 2, b - 3].forEach(function (wx) { for (yy = h; yy < h + 2; yy++) g[wx][yy] = 3; });
+      for (yy = h; yy < h + 1; yy++) g[c][yy] = 3;
+      plat(a + 2, w - 4, h + 4);
+      plat(c - 1, 3, h + 6);
+      plat(a + 4, 2, h + 2); plat(b - 6, 2, h + 2);
+    } else if (z.k === 'stairs') {
+      // 하늘 계단: 2칸씩 올라갔다가 내려와요(꼭대기는 서리용 바람을 피하기 좋아요)
+      var steps = [h + 2, h + 4, h + 6, h + 8, h + 6, h + 4, h + 2], sx = a + 1;
+      steps.forEach(function (s, i) { plat(sx + i * 2, 3, Math.min(s, 12)); });
+    } else if (z.k === 'spring') {
+      // 트램펄린 두 개와 높은 발판
+      [c - 4, c + 4].forEach(function (sx2) { g[sx2][h] = 4; });
+      plat(c - 2, 5, h + 7); plat(a + 1, 3, h + 2); plat(b - 4, 3, h + 2); plat(c - 1, 3, h + 3);
+    } else if (z.k === 'ice') {
+      // 빙판: 땅 윗칸이 미끄러운 얼음, 위로 계단 발판
+      for (xx = a; xx < b; xx++) g[xx][gh[xx] - 1] = 5;
+      plat(a + 2, 4, h + 2); plat(a + 6, 4, h + 4); plat(b - 6, 4, h + 2);
+    }
+  });
+  // 출발점: 사람 수만큼 나눈 곳 근처의 빈 땅
+  for (var i = 0; i < n; i++) { var sx3 = Math.round((i + 0.5) * (TW - 2) / n) + 1; M.sp.push({ x: sx3 + 0.5, y: 0 }); }
+  function nearSp(x0, r) { for (var j = 0; j < M.sp.length; j++) if (Math.abs(M.sp[j].x - x0) < r) return true; return false; }
+  // 눈 벽돌 벽(높이 1~2칸): 언덕·골짜기·빙판 구역에 숨을 곳
+  var walls = 0;
+  M.zones.forEach(function (z) {
+    if (z.k === 'valley') z.wall.forEach(function (wx) { if (!g[wx][1] && !nearSp(wx + 0.5, 2.5)) { g[wx][1] = 3; if (R() < 0.5) g[wx][2] = 3; } });
+  });
+  for (k = 0; k < 400 && walls < Math.round(TW / 10); k++) {
+    x = 3 + Math.floor(R() * (TW - 6));
+    var zk = zoneAt(M, x);
+    if (zk !== 'hills' && zk !== 'ice') continue;
+    if (nearSp(x + 0.5, 3) || gh[x - 1] !== gh[x] || gh[x + 1] !== gh[x] || g[x][gh[x]] || g[x - 1][gh[x]] === 3 || g[x + 1][gh[x]] === 3 || g[x - 2][gh[x]] === 3 || g[x + 2][gh[x]] === 3) continue;
+    var wh = R() < 0.6 ? 2 : 1, ok = true;
+    for (y = gh[x]; y < gh[x] + wh + 1; y++) if (g[x][y]) ok = false;
+    if (!ok) continue;
+    for (y = gh[x]; y < gh[x] + wh; y++) g[x][y] = 3;
+    walls++;
+  }
+  M.sp.forEach(function (sp) { sp.y = standY(g, gh, Math.floor(sp.x)); });
+  // 꾸미기(부딪히지 않아요): 눈사람·작은 나무·바위·가로등·벤치
+  for (k = 0; k < 44; k++) {
+    x = 2 + Math.floor(R() * (TW - 4));
+    if (g[x][gh[x]] || g[x][gh[x] + 1] || gh[x - 1] !== gh[x] || gh[x + 1] !== gh[x] || g[x][gh[x] - 1] === 5) continue;
+    M.deco.push({ x: x, y: gh[x], k: ['m', 't', 't', 'r', 'l', 'b'][Math.floor(R() * 6)], s: R() });
+  }
+  for (k = 0; k < 90; k++) M.trees.push({ x: R() * TW * TILE, s: 0.6 + R() * 0.7, l: R() < 0.5 ? 0 : 1 });
+  return M;
+}
+function shuffleR(a, R) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(R() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+function zoneAt(M, x) { for (var i = 0; i < M.zones.length; i++) if (x >= M.zones[i].x0 && x < M.zones[i].x1) return M.zones[i].k; return 'hills'; }
+// x칸에서 몸이 들어가는 가장 낮은 땅 높이
+function standY(g, gh, tx) {
+  var y = gh[tx];
+  while (y < TH - 2 && (isSolid(g[tx][y]) || isSolid(g[tx][y + 1]) || g[tx][y] === 4)) y++;
+  return y;
+}
+function isSolid(t) { return t === 1 || t === 3 || t === 4 || t === 5; }
+
+// ===== 서리용의 냉기바람 =====
+// 40초부터 35초마다(모든 기기가 같은 시각) 눈밭 가운데(7.5칸)를 기준으로 위쪽 또는 아래쪽 절반에 냉기바람이 불어요.
+// 3초 전에 서리용이 나타나 알려 주고, 7초 동안 불어요. 바람 속에서는 느려지고(×0.5) 1초마다 체력이 4씩 닳아요(체력 1 아래로는 안 내려가요).
+var STORM = { first: 40, every: 35, warn: 3, blow: 7, slow: 0.5, tick: 1 };
+function stormAt(t) {
+  if (!G || t < STORM.first - STORM.warn) return null;
+  var k = Math.floor((t - STORM.first + STORM.warn) / STORM.every), s = STORM.first + k * STORM.every, d = t - s;
+  if (s + STORM.blow > RULE.DUR / 1000) return null;
+  if (d < -STORM.warn || d >= STORM.blow) return null;
+  var r = mulberry(G.seed + 7919 * (k + 1));
+  r(); return { k: k, up: r() < 0.5, dir: r() < 0.5 ? 1 : -1, warn: d < 0, left: d < 0 ? -d : STORM.blow - d, d: d };
+}
+function inStorm(st, y) { if (!st) return false; var c = y + PH / 2; return st.up ? c >= TH / 2 : c < TH / 2; }
+function chilled(p) { var st = G.storm; return !!(st && !st.warn && active(p.i) && !frozen(p.i) && inStorm(st, pyOf(p))); }
+function tileAt(tx, ty) { if (tx < 0 || tx >= TW) return 1; if (ty < 0) return 1; if (ty >= TH) return 0; return G.map.g[tx][ty]; }
+function solidT(tx, ty) { return isSolid(tileAt(tx, ty)); }
+function solidAt(x, y) { return solidT(Math.floor(x), Math.floor(y)); }
+// 몸 움직이기: 가로 → 세로 순서로 칸에 부딪히는지 봐요. 얼음 발판은 위에서 내려올 때만 밟혀요.
+function moveBody(p, dt) {
+  var n = Math.max(1, Math.ceil(Math.max(Math.abs(p.vx), Math.abs(p.vy)) * dt / 0.3)), sd = dt / n, hw = PW / 2;
+  p.onG = false;
+  for (var s = 0; s < n; s++) {
+    var nx = p.x + p.vx * sd, y0 = Math.floor(p.y + 0.02), y1 = Math.floor(p.y + PH - 0.02), ty;
+    if (p.vx > 0) { var cx = Math.floor(nx + hw); for (ty = y0; ty <= y1; ty++) if (solidT(cx, ty)) { nx = cx - hw - 0.001; p.vx = 0; p.bump = 1; break; } }
+    else if (p.vx < 0) { var cx2 = Math.floor(nx - hw); for (ty = y0; ty <= y1; ty++) if (solidT(cx2, ty)) { nx = cx2 + 1 + hw + 0.001; p.vx = 0; p.bump = -1; break; } }
+    p.x = nx;
+    var ny = p.y + p.vy * sd, x0 = Math.floor(p.x - hw + 0.02), x1 = Math.floor(p.x + hw - 0.02), tx;
+    if (p.vy <= 0) {
+      var row = Math.floor(ny);
+      for (tx = x0; tx <= x1; tx++) {
+        var t = tileAt(tx, row);
+        if (t === 4) { ny = row + 1; p.vy = SPRING; p.onG = false; p.jumpT = 0.15; p.ice = false; if (p.i === G.me) beep('boing'); break; }
+        if (isSolid(t) || (t === 2 && !(p.drop > 0) && p.y >= row + 1 - 0.001)) { ny = row + 1; p.vy = 0; p.onG = true; p.ice = t === 5; break; }
+      }
+    } else {
+      var hr = Math.floor(ny + PH);
+      for (tx = x0; tx <= x1; tx++) if (solidT(tx, hr)) { ny = hr - PH - 0.001; p.vy = 0; break; }
+    }
+    p.y = ny;
+  }
+  if (p.y < 0) { p.y = G.map.gh[clamp(Math.floor(p.x), 0, TW - 1)]; p.vy = 0; }
+}
+// 서 있는 발밑이 얼음 발판인지(아래로 내려가기)
+function onPlatform(p) {
+  if (!p.onG) return false;
+  var row = Math.round(p.y) - 1, a = tileAt(Math.floor(p.x - PW / 2 + 0.02), row), b = tileAt(Math.floor(p.x + PW / 2 - 0.02), row);
+  return (a === 2 || a === 0) && (b === 2 || b === 0) && (a === 2 || b === 2);
+}
+// (sx,sy)에서 (tx,ty)로 가는 눈덩이 속도. 너무 멀면 RANGE까지만 던져요.
+function aimVel(sx, sy, tx, ty) {
+  var dx = tx - sx, dy = ty - sy;
+  if (Math.abs(dx) > RANGE) { dy *= RANGE / Math.abs(dx); dx = dx > 0 ? RANGE : -RANGE; }
+  var T = clamp(Math.abs(dx) / BV, 0.16, 1.5), vy = (dy + 0.5 * BGRAV * T * T) / T;
+  if (Math.abs(dx) < 1.2 && dy > 0) { T = Math.max(T, 0.4); vy = (dy + 0.5 * BGRAV * T * T) / T; }
+  return [dx / T, clamp(vy, -22, 22)];
+}
+// 그 속도로 던지면 칸에 막히지 않고 (tx,ty) 근처까지 가는지 미리 따라가 봐요.
+function pathClear(sx, sy, v, tx, ty) {
+  var x = sx, y = sy, vy = v[1], dt = 0.02;
+  for (var k = 0; k < 90; k++) {
+    x += v[0] * dt; vy -= BGRAV * dt; y += vy * dt;
+    if (Math.abs(x - tx) < 0.6 && Math.abs(y - ty) < 1) return true;
+    if ((v[0] > 0 && x > tx + 0.6) || (v[0] < 0 && x < tx - 0.6)) return false;
+    if (solidAt(x, y)) return false;
+  }
+  return false;
+}
+
+// ===== 게임 상태 =====
+var G = null, SID = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+var keys = {};
+function myName() { return cleanName($('#nm').value, 10); }
+function myCls() { return cleanCls($('#cl').value); }
+function sNow() { return G && G.mode === 'net' && Sync ? Date.now() + Sync.off : Date.now(); }
+function gSec() { return (sNow() - G.t0s) / 1000; }        // 시작한 뒤 지난 초
+function started() { return G && Date.now() >= G.start; }
+function me() { return G.pl[G.me]; }
+function active(i) { return G && !G.S.q[i]; }
+function frozen(i) { return rFrozen(G.S, i, sNow()); }
+function canPlay(i) { return active(i) && !frozen(i); }
+function hpOf(i) { var S = G.S; return S.hp[i] <= 0 && !S.q[i] && sNow() >= S.fr[i] ? RULE.HP : S.hp[i]; }
+function shOf(i) { var S = G.S; return S.hp[i] <= 0 ? 0 : S.sh[i]; }
+function upOf(i, k) { return (G.S.up[i] && G.S.up[i][k]) | 0; }
+function ammoMax(i) { return AMMO_MAX0 + 2 * upOf(i, 3); }
+function newPl(i, name, bot, sp, S) {
+  var bag = (S.up[i] && S.up[i][3]) | 0;
+  return { i: i, name: name, bot: bot, x: sp.x, y: sp.y, face: sp.x < TW / 2 ? 1 : -1, rx: sp.x, ry: sp.y, rface: 1, vx: 0, vy: 0, onG: true, coy: 0, jb: 0, drop: 0, bump: 0,
+    ammo: AMMO_START0 + bag, cd: 0, streak: 0, ok: 0, big: 0, sled: 0, walk: 0, moving: 0, throwT: 0, samples: [], shots: [], lastShotT: 0, f: 0, fz: 0,
+    qT: 0, tgt: null, stuck: 0, lx: sp.x, wig: 0, want: 6 + Math.random() * 4, jumpT: 0 };
+}
+
+// mode: 'cpu' | 'net'. start: 이 기기 시계로 시작 시각, t0s: 시작 시각(서버 시계), seed: 눈밭 씨앗, ups: 사람마다 강화 단계
+function newGame(mode, names, myIdx, net, start, lv, t0s, seed, ups, ps) {
+  var map = buildMap(seed, names.length), S = ps || rNew(names.length, ups);
+  G = {
+    mode: mode, me: myIdx, net: net, lv: lv, start: start, t0s: t0s || start, over: false, ending: false, seed: seed, map: map, S: S,
+    pl: null, balls: [], fx: [], parts: [], feed: [], deck: shuffle(Q.map(function (x, i) { return i; })),
+    qi: -1, q: null, ok: 0, nq: 0, wrongs: [], kills: 0,
+    fid: 0, contig: 0, pend: {}, seen: {}, sendP: [], sendS: [], lastRec: 0, srvDone: false, count: 9, camX: null, flash: 0, lastLife: RULE.HP
+  };
+  G.pl = names.map(function (n, i) { return newPl(i, n, mode === 'cpu' && i !== myIdx, map.sp[i], S); });
+  G.pl.forEach(function (p) { if (p.bot) p.qT = rnd(BOT[lv].t[0], BOT[lv].t[1]); });
+  show('game');
+  if (!View.init()) return;
+  View.build(G);
+  layout();
+  $('#frozen').classList.add('hide');
+  $('#ammoMax').textContent = '/' + ammoMax(G.me);
+  nextQuestion();
+  hud(true);
+  beep('tick');
+}
+
+// ===== 사건: 명중(h) · 회복·방패(u) · 나가기(q) =====
+// 컴퓨터 연습은 이 기기에서 바로 규칙을 적용하고, 온라인은 서버를 거쳐 모든 기기가 같은 순서로 적용해요.
+function ruleApply(S, ev) {
+  if (ev.t === 'h') return rHit(S, ev.w, ev.to, ev.k, ev.s);
+  if (ev.t === 'u') return rHeal(S, ev.w, ev.hp, ev.sh, ev.s);
+  if (ev.t === 'c') return rCold(S, ev.w, ev.dm, ev.s);
+  if (ev.t === 'q') return rQuit(S, ev.w);
+  return {};
+}
+function emit(w, e) {
+  if (!G || G.ending) return;
+  if (G.mode === 'cpu') {
+    var ev = { w: w, s: Date.now() };
+    for (var k in e) ev[k] = e[k];
+    ev.r = ruleApply(G.S, ev);
+    onEv(ev);
+    return;
+  }
+  if (w === G.me) sendEv(e);
+}
+function sendEv(e) {
+  var g0 = G, id = (g0.me + 1) * 1000000 + (++g0.fid);
+  e.id = id; g0.pend[id] = e;
+  var tries = 0;
+  function go() {
+    tries++;
+    Net.call('shoot', { code: g0.net.code, sid: SID, e: e }).then(function (r) {
+      delete g0.pend[id];
+      if (r && r.ok && r.ev) recvEvent(r.ev);
+      else if (r && r.late) {}
+      else if (tries < 3) setTimeout(go, 600);
+    }).catch(function () { if (tries < 3) setTimeout(go, 800); else delete g0.pend[id]; });
+  }
+  go();
+}
+function recvEvent(ev) {
+  if (!G || G.mode !== 'net') return;
+  if (G.seen[ev.g]) return;
+  G.seen[ev.g] = 1;
+  while (G.seen[G.contig + 1]) G.contig++;
+  if (G.S.v === ev.v0) ruleApply(G.S, ev);
+  onEv(ev);
+}
+function nm(i) { return G.pl[i] ? G.pl[i].name : '?'; }
+function onEv(ev) {
+  var r = ev.r || {};
+  if (r.x === 'n') return;
+  if (ev.t === 'h') {
+    var v = G.pl[ev.to];
+    if (v && ev.w !== G.me && ev.to === G.me) popup(pxOf(v), pyOf(v) + PH + 0.6, '-' + r.dm, '#ff8a9a');
+    if (r.k) {
+      addFeed(DOT[ev.w] + ' ' + nm(ev.w) + ' ⚪→ ' + DOT[ev.to] + ' ' + nm(ev.to) + ' 🧊 꽁꽁!');
+      if (ev.w === G.me) { G.kills++; beep('kill'); note('🧊 ' + nm(ev.to) + ' 꽁꽁! +' + (RULE.HIT_PT + RULE.KO_PT) + '점'); }
+    }
+  } else if (ev.t === 'c') {
+    var c = G.pl[ev.w];
+    if (c && ev.w === G.me) popup(pxOf(c), pyOf(c) + PH + 0.5, '❄-' + r.dm, '#8fe1ff');
+  } else if (ev.t === 'q') {
+    addFeed('👋 ' + nm(ev.w) + ' 나감');
+  }
+}
+function note(s) { G.msgT = 1.8; $('#banner').innerHTML = esc(s); }
+function addFeed(s) { G.feed.push({ s: s, t: 5 }); if (G.feed.length > 4) G.feed.shift(); }
+function popup(x, y, txt, col) { G.fx.push({ k: 'txt', x: x, y: y, txt: txt, col: col, life: 0.9 }); }
+
+// ===== 아이템 =====
+function rollItem(p) {
+  var hp = hpOf(p.i), w = { shield: 28, heal: hp < 70 ? 42 : 12, big: 28, sled: 20 }, sum = 0, k;
+  for (k in w) sum += w[k];
+  var r = Math.random() * sum;
+  for (k in w) { r -= w[k]; if (r < 0) return k; }
+  return 'shield';
+}
+function giveItem(p) {
+  var it = rollItem(p);
+  if (frozen(p.i) && (it === 'shield' || it === 'heal')) it = 'big';
+  if (it === 'shield') emit(p.i, { t: 'u', hp: 0, sh: RULE.SH });
+  else if (it === 'heal') emit(p.i, { t: 'u', hp: RULE.HEAL, sh: 0 });
+  else if (it === 'big') p.big = BIG_N;
+  else p.sled = SLED_T;
+  if (p.i === G.me) { beep('item'); toast(ITEMS[it].e + ' ' + ITEMS[it].n + '!', 2); }
+  return it;
+}
+// 정답이면 생기는 눈: 단계별 기본 + 장인 보너스(장인 l단계: ⭐(4−l) 이상 정답에 +1)
+function snowFor(i, tier) { var l = upOf(i, 4); return AMMO[tier] + (l > 0 && tier >= 4 - l ? 1 : 0); }
+
+// ===== 문제 =====
+function nextQuestion() {
+  if (!G) return;
+  G.qi = (G.qi + 1) % G.deck.length;
+  if (G.qi === 0 && G.nq) shuffle(G.deck);
+  var x0 = Q[G.deck[G.qi]], ord = shuffle([0, 1, 2, 3]);
+  var x = [x0[0], x0[1], ord.map(function (k) { return x0[2][k]; }), ord.indexOf(x0[3]), x0[4], x0[5]];
+  G.q = { x: x, done: false, until: 0 };
+  G.nq++;
+  renderQ();
+}
+function qInfo() { var p = me(); return '연속 ' + p.streak + ' · 다음 🎁까지 ' + (STREAK_ITEM - p.streak % STREAK_ITEM); }
+function renderQ() {
+  var x = G.q.x, b = snowFor(G.me, x[4]) - AMMO[x[4]];
+  $('#pad').className = '';
+  $('#qTag').textContent = QTAG[x[4]] + (b ? ' (+' + b + ' ❄️)' : '');
+  $('#qInfo').textContent = qInfo();
+  $('#qText').innerHTML = mathHtml(x[1]);
+  $('#qOpts').innerHTML = x[2].map(function (o, j) { return '<button data-j="' + j + '"><b>' + (j + 1) + '</b><span>' + mathHtml(o) + '</span></button>'; }).join('');
+  $('#qOpts').querySelectorAll('button').forEach(function (bt) { bt.onclick = function () { answer(+bt.dataset.j); }; });
+  $('#qRes').innerHTML = '';
+}
+function answer(j) {
+  if (!G || G.over || G.ending || !G.q || G.q.done || !active(G.me)) return;
+  var p = me(), x = G.q.x, ok = j === x[3], btns = $('#qOpts').querySelectorAll('button');
+  G.q.done = true; G.lastAns = Math.max(Date.now(), G.start); G.idleWarned = false;
+  btns.forEach(function (b, k) { b.disabled = true; if (k === x[3]) b.classList.add('ok'); else if (k === j) b.classList.add('no'); });
+  if (ok) {
+    G.ok++; p.ok++; p.streak++;
+    var before = p.ammo;
+    p.ammo = Math.min(ammoMax(G.me), p.ammo + snowFor(G.me, x[4]));
+    var got = [];
+    if (p.streak % STREAK_ITEM === 0) got.push(giveItem(p));
+    beep('ok');
+    $('#pad').className = 'ok';
+    $('#qRes').innerHTML = '⭕ 정답! <b>⚪ +' + (p.ammo - before) + '개</b>' + (p.ammo >= ammoMax(G.me) ? ' (가득)' : '') +
+      (got.length ? ' · ' + got.map(function (k) { return ITEMS[k].e + ' ' + ITEMS[k].n; }).join(' · ') : '');
+    G.q.until = Date.now() + OK_SHOW * 1000;
+  } else {
+    p.streak = 0;
+    var lost = p.ammo > 0 ? 1 : 0; p.ammo -= lost;
+    if (!lost) { p.stun = STUN_T; p.vx = 0; toast('😵 눈덩이가 없는데 틀려서 2초 동안 못 움직여요!', 2); }
+    beep('no');
+    $('#pad').className = 'no';
+    G.wrongs.push({ q: x[1], a: x[2][x[3]], my: x[2][j], e: x[5] });
+    $('#qRes').innerHTML = '❌ ' + (lost ? '⚪ 눈덩이 −1 · ' : '😵 2초 멈춤 · ') + '정답은 <b>' + (x[3] + 1) + '번 ' + mathHtml(x[2][x[3]]) + '</b><div class="e">' + mathHtml(x[5]) + '</div>';
+    G.q.until = Date.now() + WRONG_LOCK * 1000;
+  }
+  $('#qInfo').textContent = qInfo();
+}
+function tickQ() { if (G.q && G.q.done && Date.now() >= G.q.until && active(G.me)) nextQuestion(); }
+
+// ===== 내 코인·장비 (온라인 판: 서버 시트 · 연습 판: 이 기기) =====
+var Wallet = { coin: 0, up: [0, 0, 0, 0, 0], ok: false, key: '' };
+function wKey() { return myName() + '|' + myCls(); }
+function walletLocal() { return store.get('w|' + wKey(), { coin: 0, up: [0, 0, 0, 0, 0] }); }
+function walletLoad() {
+  var key = wKey();
+  if (!myName()) { Wallet.ok = false; Wallet.key = ''; renderShop(); return Promise.resolve(Wallet); }
+  if (!Net) { var w = walletLocal(); Wallet.coin = w.coin | 0; Wallet.up = rUps_(w.up); Wallet.ok = true; Wallet.key = key; renderShop(); return Promise.resolve(Wallet); }
+  if (!myCls()) { Wallet.ok = false; Wallet.key = ''; $('#shopNote').textContent = '반 코드도 써 주세요. 코인은 이름+반 코드로 저장돼요.'; renderShop(); return Promise.resolve(Wallet); }
+  $('#shopNote').textContent = '내 코인을 불러오는 중…';
+  return Net.call('getWallet', { name: myName(), cls: myCls() }).then(function (r) {
+    if (key !== wKey()) return Wallet;
+    if (r && r.ok) { Wallet.coin = r.coin | 0; Wallet.up = rUps_(r.up); Wallet.ok = true; Wallet.key = key; }
+    renderShop();
+    return Wallet;
+  }).catch(function (e) { $('#shopNote').textContent = '코인을 불러오지 못했어요: ' + (e && e.message ? e.message : e); return Wallet; });
+}
+function walletBuy(k) {
+  if (!Wallet.ok) return;
+  var l = Wallet.up[k], cost = UPCOST[l];
+  if (l >= RULE.MAXLV || Wallet.coin < cost) return;
+  if (!Net) {
+    Wallet.coin -= cost; Wallet.up[k]++;
+    store.set('w|' + wKey(), { coin: Wallet.coin, up: Wallet.up });
+    beep('coin'); renderShop(); return;
+  }
+  document.querySelectorAll('#shop button').forEach(function (b) { b.disabled = true; });
+  Net.call('buyUp', { name: myName(), cls: myCls(), k: k }).then(function (r) {
+    if (r && r.ok) { Wallet.coin = r.coin | 0; Wallet.up = rUps_(r.up); beep('coin'); }
+    else toast('❌ ' + (r && r.msg ? r.msg : '강화하지 못했어요.'), 2.5);
+    renderShop();
+  }).catch(function (e) { toast('❌ 서버 오류: ' + (e && e.message ? e.message : e), 2.5); renderShop(); });
+}
+// 컴퓨터 연습 코인을 더해요. 온라인 판은 서버가 하루 100코인까지 더해 줘요.
+function walletCpu(win, lv, ok) {
+  var c = rCpuCoin(win, lv, ok);
+  if (!Net) {
+    var w = walletLocal(); w.coin = (w.coin | 0) + c; store.set('w|' + wKey(), w);
+    Wallet.coin = w.coin; Wallet.up = rUps_(w.up); Wallet.ok = true; Wallet.key = wKey();
+    return Promise.resolve({ ok: true, add: c, coin: w.coin });
+  }
+  return Net.call('saveCpu', { name: myName(), cls: myCls(), sid: SID, win: win ? 1 : 0, lv: lv, ok: ok });
+}
+function renderShop() {
+  var box = $('#shop');
+  $('#shopCoin').textContent = '🪙 ' + (Wallet.ok ? Wallet.coin : '-');
+  if (Wallet.ok) $('#shopNote').innerHTML = Net ? '코인은 <b>이름+반 코드</b>로 저장돼요. 이름을 똑같이 써야 이어서 쓸 수 있어요.' : '이 화면(연습 판)의 코인은 <b>이 기기</b>에만 저장돼요.';
+  else if (!myName()) $('#shopNote').textContent = '이름과 반 코드를 쓰면 내 코인과 장비가 보여요.';
+  box.innerHTML = UPG.map(function (u, k) {
+    var l = Wallet.up[k] | 0, max = l >= RULE.MAXLV, cost = UPCOST[l];
+    var lvBar = '<span class="lv">' + [0, 1, 2].map(function (j) { return '<i' + (j < l ? ' class="on"' : '') + '></i>'; }).join('') + '</span>';
+    return '<div class="up"><div class="ic">' + u.e + '</div><div class="tt"><b>' + u.n + ' ' + lvBar + '</b><span>' + esc(u.d(l)) + '</span></div>' +
+      '<button data-k="' + k + '"' + (max || !Wallet.ok || Wallet.coin < cost ? ' disabled' : '') + '>' + (max ? '최고 단계' : '🪙 ' + cost) + '</button></div>';
+  }).join('');
+  box.querySelectorAll('button').forEach(function (b) { b.onclick = function () { walletBuy(+b.dataset.k); }; });
+}
+// ===== 움직이기 · 던지기 =====
+var lastTs = 0;
+function loop(ts) {
+  var dt = Math.min(0.05, Math.max(0, (ts - lastTs) / 1000)); lastTs = ts;
+  if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('#toast').classList.add('hide'); }
+  if (G && !G.over && View.ok) { update(dt); View.render(dt); hud(); }
+  requestAnimationFrame(loop);
+}
+// 이 기기에서 움직이는 사람(나·컴퓨터)은 지금 위치, 온라인 친구는 조금 전 기록
+function localP(q) { return q.bot || q.i === G.me || G.mode === 'cpu'; }
+function pxOf(q) { return localP(q) ? q.x : q.rx; }
+function pyOf(q) { return localP(q) ? q.y : q.ry; }
+function faceOf(q) { return localP(q) ? q.face : q.rface; }
+// 키보드·화면 버튼 → 왼쪽(−1)·오른쪽(+1)
+function moveInput() {
+  var m = 0;
+  if (keys.ArrowRight || keys.KeyD || Pad.r) m += 1;
+  if (keys.ArrowLeft || keys.KeyA || Pad.l) m -= 1;
+  return m;
+}
+function jumpKey() { return keys.ArrowUp || keys.KeyW || keys.KeyK || Pad.j; }
+function downKey() { return keys.ArrowDown || keys.KeyS || Pad.d; }
+function speedOf(p) { return SPEED * (1 + 0.06 * upOf(p.i, 2)) * (p.sled > 0 ? SLED_K : 1) * (chilled(p) ? STORM.slow : 1); }
+// mx: 가는 쪽(−1~1), jump: 이번에 점프를 눌렀는지, down: 아래로 내려가기
+function stepMove(p, mx, jump, down, dt) {
+  var sp = speedOf(p), acc = (p.onG ? (p.ice ? 9 : 70) : 40) * dt;
+  p.vx = approach(p.vx, mx * sp, acc);
+  if (mx) p.face = mx > 0 ? 1 : -1;
+  p.coy = p.onG ? COYOTE : p.coy - dt;
+  p.jb = jump ? JBUF : p.jb - dt;
+  if (p.drop > 0) p.drop -= dt;
+  if (down && onPlatform(p)) { p.drop = 0.22; p.onG = false; p.coy = 0; }
+  if (p.jb > 0 && p.coy > 0 && !(p.drop > 0)) { p.vy = JUMP; p.jb = 0; p.coy = 0; p.jumpT = 0.15; if (p.i === G.me) beep('jump'); }
+  p.vy = Math.max(-FALL_MAX, p.vy - GRAV * dt);
+  p.bump = 0;
+  moveBody(p, dt);
+  p.moving = Math.abs(p.vx) > 0.4;
+  if (p.moving && p.onG) p.walk += dt * Math.abs(p.vx) * 1.6;
+  if (p.jumpT > 0) p.jumpT -= dt;
+}
+// 앞쪽에서 눈덩이가 닿는 가장 가까운 친구
+function aimTarget(p, face) {
+  var best = null, bs = 1e9, hx = p.x, hy = p.y + HAND;
+  G.pl.forEach(function (q) {
+    if (q.i === p.i || !canPlay(q.i)) return;
+    var x = pxOf(q), y = pyOf(q) + PH * 0.5, dx = x - hx;
+    if (Math.abs(dx) > RANGE + 1) return;
+    if (face && dx * face < -0.8) return;
+    var v = aimVel(hx, hy, x, y), clear = pathClear(hx, hy, v, x, y);
+    var sc = Math.abs(dx) + Math.abs(y - hy) * 1.5 + (clear ? 0 : 30);
+    if (sc < bs) { bs = sc; best = q; }
+  });
+  return best;
+}
+// 움직이는 친구는 날아가는 동안 갈 곳을 조금 앞서 노려요.
+function leadAim(p, q, k, err) {
+  var hx = p.x, hy = p.y + HAND, x = pxOf(q), y = pyOf(q) + PH * 0.5, T = clamp(Math.abs(x - hx) / BV, 0.16, 1.5);
+  var tx = x + q.vx * T * k + (err ? rnd(-err, err) : 0), ty = y + (q.onG === false ? q.vy * T * k * 0.4 : 0) + (err ? rnd(-err, err) * 0.6 : 0);
+  return aimVel(hx, hy, tx, ty);
+}
+function autoThrow(p) {
+  var q = aimTarget(p, p.face);
+  if (q) return fire(p, leadAim(p, q, 0.85, 0));
+  return fire(p, [p.face * BV, 3]);
+}
+function fire(p, v) {
+  if (!started() || G.ending || !canPlay(p.i) || p.cd > 0) return false;
+  if (p.ammo <= 0) {
+    if (p.i === G.me) { toast('⚪ 눈이 없어요! 문제를 맞혀 눈덩이를 만들어요', 1.3); beep('empty'); }
+    p.cd = 0.4; return false;
+  }
+  var big = p.big > 0 ? 1 : 0;
+  p.ammo--; if (big) p.big--;
+  p.cd = FIRE_CD; p.throwT = 0.3;
+  if (Math.abs(v[0]) > 0.3) p.face = v[0] > 0 ? 1 : -1;
+  var x = p.x + p.face * 0.35, y = p.y + HAND;
+  spawnBall(p.i, x, y, v, big, G.mode === 'cpu' || p.i === G.me);
+  if (G.mode === 'net' && p.i === G.me) { G.sendS.push([x, y, v[0], v[1], 0, Date.now(), big]); if (G.sendS.length > 12) G.sendS.shift(); }
+  if (p.i === G.me || Math.abs(p.x - me().x) < 22) beep('shot');
+  return true;
+}
+// real: 이 기기가 명중을 판정하는 눈덩이(내 것·컴퓨터 것). 온라인 친구 눈덩이는 보이기만 해요.
+function spawnBall(w, x, y, v, big, real) {
+  G.balls.push({ w: w, x: x, y: y, vx: v[0], vy: v[1], big: big, real: real, life: 2.6, rot: 0 });
+}
+function splat(x, y, col, n) {
+  for (var k = 0; k < n; k++) G.parts.push({ x: x, y: y, vx: rnd(-5, 5), vy: rnd(1, 7), life: rnd(0.3, 0.7), col: k % 3 === 0 && col ? col : '#ffffff' });
+}
+function stepBalls(dt) {
+  var out = [];
+  G.balls.forEach(function (b) {
+    var steps = 4, hit = false, sd = dt / steps, r = b.big ? 0.3 : 0.2;
+    for (var s = 0; s < steps && !hit; s++) {
+      b.x += b.vx * sd; b.vy -= BGRAV * sd; b.y += b.vy * sd;
+      if (b.x < 0 || b.x > TW || b.y < -1) { hit = true; break; }
+      if (solidAt(b.x, b.y)) { splat(b.x - b.vx * sd, b.y - b.vy * sd, null, 7); hit = true; break; }
+      for (var j = 0; j < G.pl.length; j++) {
+        var q = G.pl[j];
+        if (j === b.w || !active(j)) continue;
+        var qx = pxOf(q), qy = pyOf(q);
+        if (Math.abs(b.x - qx) > PW / 2 + r || b.y < qy - r || b.y > qy + PH + r) continue;
+        hit = true;
+        splat(b.x, b.y, COL[b.w], 12);
+        if (b.real && canPlay(j) && sNow() >= G.S.sf[j]) {
+          if (b.w === G.me) { popup(qx, qy + PH + 0.6, '-' + rDmg(G.S, b.w, j, b.big), '#ffe28a'); beep('splat'); }
+          if (localP(q)) { q.vx += (b.vx > 0 ? 1 : -1) * 4; q.vy = Math.max(q.vy, 3); }
+          emit(b.w, { t: 'h', to: j, k: b.big });
+        }
+        break;
+      }
+    }
+    b.life -= dt; b.rot += dt * 12;
+    if (!hit && b.life > 0) out.push(b);
+  });
+  G.balls = out;
+}
+// 꽁꽁이 풀리면 친구들과 가장 먼 출발점에서 다시 뛰어요.
+function respawn(p) {
+  var best = null, bd = -1, cand = [];
+  for (var x = 4; x < TW - 4; x += 6) cand.push(x + 0.5);
+  cand.forEach(function (cx) {
+    var tx = Math.floor(cx), y = G.map.gh[tx];
+    while (y < TH - 2 && (solidT(tx, y) || solidT(tx, y + 1))) y++;
+    var d = 1e9;
+    G.pl.forEach(function (q) { if (q !== p && active(q.i)) d = Math.min(d, Math.abs(cx - pxOf(q))); });
+    d += Math.random() * 3;
+    if (d > bd) { bd = d; best = { x: cx, y: y }; }
+  });
+  p.x = best.x; p.y = best.y; p.vx = p.vy = 0; p.tgt = null; p.face = p.x < TW / 2 ? 1 : -1;
+  if (p.i === G.me) { G.camX = null; G.recPos = true; }
+}
+
+function update(dt) {
+  var now = Date.now(), p = me();
+  G.pl.forEach(function (q) { if (q.cd > 0) q.cd -= dt; if (q.throwT > 0) q.throwT -= dt; if (q.sled > 0) q.sled -= dt; if (q.stun > 0) q.stun -= dt; if (q.idle > 0) q.idle -= dt; });
+  if (G.mode === 'net') interpPeers(dt);
+  stepStorm(dt);
+  if (now < G.start) {
+    var c = Math.ceil((G.start - now) / 1000);
+    if (c !== G.count) { G.count = c; beep('tick'); $('#banner').innerHTML = c + '<small>문제를 맞혀 눈덩이를 만들어요!</small>'; }
+    tickQ();
+    stepParts(dt);
+    return;
+  }
+  if (G.count > 0) { G.count = 0; beep('go'); $('#banner').innerHTML = '눈싸움 시작!'; G.goT = 1.2; }
+  if (G.goT > 0) { G.goT -= dt; if (G.goT <= 0 && !G.ending && !(G.msgT > 0)) $('#banner').innerHTML = ''; }
+  if (G.msgT > 0) { G.msgT -= dt; if (G.msgT <= 0 && !G.ending) $('#banner').innerHTML = ''; }
+  if (!G.ending) {
+    if (active(G.me)) {
+      if (canPlay(G.me)) {
+        var jk = !!jumpKey(), jp = jumpQ || (jk && !G.jHeld); G.jHeld = jk; jumpQ = false;
+        stepIdle(p, dt, now);
+        if (p.stun > 0 || p.idle > 0) stepMove(p, 0, false, false, dt); else stepMove(p, moveInput(), jp, !!downKey(), dt);
+        if (!(p.stun > 0) && !(p.idle > 0) && (keys.Space || keys.KeyJ || fireHold)) autoThrow(p);
+      } else { if (G.lastAns) G.lastAns += dt * 1000; p.moving = false; p.vx = 0; p.vy = Math.max(-FALL_MAX, p.vy - GRAV * dt); moveBody(p, dt); }
+      tickQ();
+    }
+    G.pl.forEach(function (q) { if (q.bot) stepBot(q, dt); });
+    if (G.mode === 'net' && now - G.lastRec >= 90) {
+      G.lastRec = now;
+      G.sendP.push([p.x, p.y, p.face > 0 ? 0 : Math.PI, now]);
+      if (G.sendP.length > 24) G.sendP.shift();
+    }
+  }
+  // 꽁꽁 확인: 이 기기에서 움직이는 사람은 풀리면 다시 뛰어요.
+  G.pl.forEach(function (q) {
+    var fz = frozen(q.i);
+    if (fz && !q.fz) { splat(pxOf(q), pyOf(q) + 0.8, '#bfefff', 20); if (q.i === G.me) { $('#frozen').classList.remove('hide'); keys.Space = false; fireHold = 0; } }
+    if (!fz && q.fz) { if (localP(q) && active(q.i)) respawn(q); if (q.i === G.me) $('#frozen').classList.add('hide'); }
+    q.fz = fz;
+  });
+  if (p.fz) setTxt('#frozenT', Math.max(0, Math.ceil((G.S.fr[G.me] - sNow()) / 1000)) + '초 뒤에 다시 뛰어요 · 그동안 문제를 풀어 눈을 모아요');
+  stepBalls(dt);
+  stepParts(dt);
+  var life = hpOf(G.me) + shOf(G.me);
+  if (life < G.lastLife) { if (G.lastLife - life <= RULE.COLD && Date.now() - (G.coldAt || 0) < 1600) G.frost = 0.5; else { G.flash = 0.35; beep('hit'); View.shake = 0.25; } }
+  if (G.frost > 0) G.frost -= dt;
+  G.lastLife = life;
+  if (G.flash > 0) G.flash -= dt;
+  tryEnd();
+}
+// 서리용 바람: 이 기기에서 움직이는 사람(나·컴퓨터)이 바람 속에 있으면 1초마다 냉기 피해를 보내요.
+function stepStorm(dt) {
+  var st = started() && !G.ending ? stormAt(gSec()) : null, was = G.storm;
+  G.storm = st;
+  if (st && (!was || was.k !== st.k)) { beep('roar'); note('🐉 서리용이 나타났어요! ' + (st.up ? '⬆️ 위쪽' : '⬇️ 아래쪽') + ' 냉기바람 주의!'); }
+  if (st && !st.warn && was && was.warn) beep('wind');
+  if (!st || st.warn) { G.pl.forEach(function (q) { q.coldT = 0; }); return; }
+  G.pl.forEach(function (q) {
+    if (!(q.bot || q.i === G.me) || !chilled(q)) { q.coldT = 0; return; }
+    q.coldT = (q.coldT || 0) + dt;
+    if (q.coldT >= STORM.tick) {
+      q.coldT -= STORM.tick;
+      if (hpOf(q.i) + shOf(q.i) > 1) { if (q.i === G.me) G.coldAt = Date.now(); emit(q.i, { t: 'c', dm: RULE.COLD }); }
+    }
+    if (Math.random() < dt * 8) G.parts.push({ x: pxOf(q) + rnd(-0.4, 0.4), y: pyOf(q) + rnd(0.2, 1.3), vx: st.dir * 6, vy: 0.5, life: 0.4, col: '#bfefff' });
+  });
+}
+// 30초 동안 문제를 하나도 안 풀면(맞히든 틀리든) 3초 동안 얼어요. 꽁꽁·멈춤 동안에는 시간이 흐르지 않아요.
+function stepIdle(p, dt, now) {
+  if (!G.lastAns) G.lastAns = now;
+  if (p.stun > 0 || p.idle > 0) { G.lastAns += dt * 1000; G.idleLeft = null; return; }
+  var left = IDLE_T - (now - G.lastAns) / 1000;
+  G.idleLeft = left;
+  if (left <= IDLE_T - IDLE_WARN && !G.idleWarned) { G.idleWarned = true; toast('⏳ 10초 안에 문제를 풀지 않으면 3초 동안 얼어요!', 2.2); beep('tick'); }
+  if (left <= 0) {
+    p.idle = IDLE_FZ; p.vx = 0; G.lastAns = now + IDLE_FZ * 1000; G.idleWarned = false; G.idleLeft = null;
+    splat(p.x, p.y + 0.8, '#bfefff', 16); beep('hit');
+    toast('🧊 30초 동안 문제를 안 풀어서 3초 동안 얼었어요!', 2.5);
+  }
+}
+function stepParts(dt) {
+  G.fx = G.fx.filter(function (e) { e.life -= dt; e.y += 1.4 * dt; return e.life > 0; });
+  G.parts = G.parts.filter(function (e) { e.life -= dt; e.vy -= 20 * dt; e.x += e.vx * dt; e.y += e.vy * dt; return e.life > 0; });
+  G.feed.forEach(function (e) { e.t -= dt; }); G.feed = G.feed.filter(function (e) { return e.t > 0; });
+}
+function endPlay(text) {
+  if (G.ending) return;
+  G.ending = true;
+  keys = {}; padOff();
+  $('#banner').innerHTML = text;
+  setTimeout(function () { if (G && !G.over) gameOver(); }, 2800);
+}
+function tryEnd() {
+  if (G.ending) return;
+  var t = gSec(), S = G.S;
+  if (G.mode === 'cpu') { if (S.end || t > RULE.DUR / 1000) endPlay(S.end ? '🏆 끝!' : '⏰ 시간 끝!'); return; }
+  if (G.srvDone || S.end || t > RULE.DUR / 1000 + 1.5) endPlay('⏰ 시간 끝!');
+}
+
+// ===== 컴퓨터 친구 =====
+function stepBot(b, dt) {
+  if (!active(b.i)) return;
+  var L = BOT[G.lv];
+  // 문제 풀기: 시간이 되면 맞히거나 틀려요(꽁꽁이어도 풀어요).
+  b.qT -= dt;
+  if (b.qT <= 0) {
+    if (Math.random() < L.acc) {
+      var tier = 1 + Math.floor(Math.random() * 3);
+      b.ok++; b.streak++;
+      b.ammo = Math.min(ammoMax(b.i), b.ammo + snowFor(b.i, tier));
+      if (b.streak % STREAK_ITEM === 0) giveItem(b);
+      b.qT = rnd(L.t[0], L.t[1]);
+    } else { b.streak = 0; if (b.ammo > 0) b.ammo--; else { b.stun = STUN_T; b.vx = 0; } b.qT = rnd(L.t[0], L.t[1]) + WRONG_LOCK; }
+  }
+  if (b.stun > 0 && canPlay(b.i)) { stepMove(b, 0, false, false, dt); return; }
+  if (!canPlay(b.i)) { b.moving = false; b.vx = 0; b.vy = Math.max(-FALL_MAX, b.vy - GRAV * dt); moveBody(b, dt); return; }
+  var foe = null, fd = 1e9;
+  G.pl.forEach(function (q) { if (q !== b && canPlay(q.i)) { var d = Math.abs(pxOf(q) - b.x) + Math.abs(pyOf(q) - b.y) * 0.6; if (d < fd) { fd = d; foe = q; } } });
+  var mx = 0, jump = false, down = false;
+  if (foe) {
+    var fx = pxOf(foe), fy = pyOf(foe), dx = fx - b.x, adx = Math.abs(dx), dir = dx > 0 ? 1 : -1;
+    if (b.ammo > 0) {
+      // 알맞은 거리(want)를 두고 서서 던져요. 가까우면 물러나고, 멀면 다가가요.
+      if (adx > b.want + 2) mx = dir; else if (adx < b.want - 2.5) mx = -dir; else mx = Math.random() < dt * 2 ? 0 : b.lastMx || 0;
+      if (fy > b.y + 2.2 && Math.random() < dt * 1.6) jump = true;
+      if (fy < b.y - 2 && Math.random() < dt * 1.2) down = true;
+      if (adx < RANGE - 2 && b.cd <= 0 && Math.random() < dt / L.gap * 2.5) {
+        var v = leadAim(b, foe, L.lead, L.aim * (0.5 + adx / 18));
+        if (pathClear(b.x, b.y + HAND, v, fx, fy + PH * 0.5)) { b.face = dir; fire(b, v); }
+        else if (Math.random() < 0.5) jump = true;
+      }
+      if (Math.random() < dt * 0.25) b.want = 5 + Math.random() * 6;
+    } else {
+      // 눈이 없으면 반대쪽으로 달아나요. 눈 벽돌이 있으면 그 뒤에 숨어요.
+      var hide = null, hd = 14;
+      for (var x = Math.max(1, Math.floor(b.x) - 12); x < Math.min(TW - 1, Math.floor(b.x) + 12); x++) {
+        if (G.map.g[x][G.map.gh[x]] === 3) { var side = x + 0.5 - dir * 1.2, d2 = Math.abs(side - b.x); if ((side - fx) * dir < 0 && d2 < hd) { hd = d2; hide = side; } }
+      }
+      if (hide != null) mx = Math.abs(hide - b.x) > 0.4 ? (hide > b.x ? 1 : -1) : 0;
+      else mx = adx < 12 ? -dir : 0;
+      if (mx) b.face = mx; else b.face = dir;
+    }
+  } else {
+    if (b.tgt == null || Math.abs(b.x - b.tgt) < 1.5) b.tgt = rnd(6, TW - 6);
+    mx = b.tgt > b.x ? 1 : -1;
+  }
+  // 서리용 바람: 아래쪽이면 발판으로 뛰어오르고, 위쪽이면 아래로 내려가요.
+  var st = G.storm;
+  if (st && inStorm(st, b.y) && Math.random() < dt * (G.lv + 1) * 1.5) { if (st.up) down = true; else jump = true; }
+  // 앞이 막히면 점프, 오래 못 움직이면 방향을 바꿔요.
+  if (mx && b.onG && (solidT(Math.floor(b.x + mx * 0.8), Math.floor(b.y + 0.2)) || solidT(Math.floor(b.x + mx * 0.8), Math.floor(b.y + 1.2)))) jump = true;
+  b.stuck += dt;
+  if (b.stuck > 1) { if (mx && Math.abs(b.x - b.lx) < 0.6) { b.wig = 0.6; b.wd = -mx; jump = true; b.tgt = null; } b.lx = b.x; b.stuck = 0; }
+  if (b.wig > 0) { b.wig -= dt; mx = b.wd; }
+  b.lastMx = mx;
+  var keepFace = foe && b.ammo > 0 ? (pxOf(foe) > b.x ? 1 : -1) : 0;
+  stepMove(b, mx, jump, down, dt);
+  if (keepFace) b.face = keepFace;
+}
+
+// ===== 화면 글자(HUD) =====
+var HUD = {};
+function setTxt(id, v) { if (HUD[id] !== v) { HUD[id] = v; $(id).textContent = v; } }
+function hud(force) {
+  if (force) HUD = {};
+  var S = G.S, p = me(), t = Math.max(0, gSec()), rank = rRank(S);
+  setTxt('#scoreN', String(rScore(S, G.me)));
+  setTxt('#rankN', String(rank[G.me]));
+  setTxt('#koN', String(S.ko[G.me] || 0));
+  setTxt('#clock', '⏱ ' + fmtT(Math.max(0, RULE.DUR - t * 1000)));
+  var hp = hpOf(G.me), sh = shOf(G.me);
+  $('#hpFill').style.width = (hp / RULE.HP * 100) + '%';
+  $('#shFill').style.width = (sh / RULE.SH * 100) + '%';
+  $('#hpBar').classList.toggle('low', hp <= 30);
+  setTxt('#hpTxt', '❤️ ' + hp + (sh ? '  🛡️ ' + sh : ''));
+  setTxt('#ammoN', String(p.ammo)); setTxt('#fireN', String(p.ammo));
+  $('#fireBtn').classList.toggle('empty', p.ammo <= 0 || p.fz);
+  setTxt('#buffs', (p.big > 0 ? '🌕×' + p.big + ' ' : '') + (p.sled > 0 ? '🛷' + Math.ceil(p.sled) : '') + (chilled(p) ? ' 🥶느림' : '') + (p.stun > 0 ? ' 😵' + Math.ceil(p.stun) : '') + (p.idle > 0 ? ' 🧊' + Math.ceil(p.idle) : G.idleLeft != null && G.idleLeft <= IDLE_T - IDLE_WARN ? ' ⏳문제 ' + Math.ceil(G.idleLeft) + '초' : '') + (sNow() < S.sf[G.me] && !p.fz ? ' ✨보호' : ''));
+  $('#hurt').style.opacity = G.flash > 0 ? String(clamp(G.flash / 0.35, 0, 1)) : '0';
+  $('#chill').style.opacity = chilled(p) ? '1' : '0';
+  var fd = G.feed.map(function (e) { return '<div>' + esc(e.s) + '</div>'; }).join('');
+  if (HUD.feed !== fd) { HUD.feed = fd; $('#feed').innerHTML = fd; }
+}
+// ===== 픽셀 그리기 (캔버스 2D) =====
+// 눈밭 좌표 (x 칸, y 칸, 위쪽 +) → 그림 좌표 (x×16 − 카메라, (15 − y)×16). 작은 그림을 그린 뒤 화면 크기로 키워요(픽셀이 또렷하게).
+var cv = $('#cv');
+var IH = TH * TILE, IW = 400, SC = 2, VW = 800, VH = 480;
+var PAL = { out: '#141a2e', skin: '#ffd8b8', cheek: '#ff9eaa', eye: '#1a1a22', pants: '#2b3654', boot: '#5a3a26', white: '#ffffff', scarf: '#fff3c4' };
+function mkCanvas(w, h) { var c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+// 그려진 픽셀 둘레에 1픽셀 테두리를 둘러요.
+function outline(c, col) {
+  var x = c.getContext('2d'), w = c.width, h = c.height, im = x.getImageData(0, 0, w, h), d = im.data, src = new Uint8ClampedArray(d), rgb = hexRgb(col);
+  for (var y = 0; y < h; y++) for (var i = 0; i < w; i++) {
+    var k = (y * w + i) * 4; if (src[k + 3] > 0) continue;
+    var near = (i > 0 && src[k - 1] > 0) || (i < w - 1 && src[k + 7] > 0) || (y > 0 && src[k - w * 4 + 3] > 0) || (y < h - 1 && src[k + w * 4 + 3] > 0);
+    if (near) { d[k] = rgb[0]; d[k + 1] = rgb[1]; d[k + 2] = rgb[2]; d[k + 3] = 255; }
+  }
+  x.putImageData(im, 0, 0);
+  return c;
+}
+function hexRgb(h) { h = h.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
+// 아이 한 명(오른쪽을 봐요). f: 0·1 서 있기 · 2~5 달리기 · 6 점프 · 7 떨어지기 · 8 던지기
+var KW = 16, KH = 25, KF = 9;
+// 하늘 3가지(씨앗으로 정해요): 0 맑은 낮 · 1 노을 · 2 오로라 밤
+var SKY = [
+  { band: ['#5d8fd6', '#6a9bdc', '#79a8e2', '#88b4e7', '#98c0ec', '#a8cbf0', '#b8d6f3', '#c8e0f6', '#d6e8f8'], far: '#9db8de', farTop: '#eef5fc', mid: '#c4d9f0', pine: '#6f93bf', pineSnow: '#dce9f7', sun: '#fff7d6' },
+  { band: ['#3b3a7a', '#5a4a8c', '#7e5a98', '#a86a9a', '#d07e8e', '#ec9a82', '#f6b688', '#fbd19a', '#fde3b4'], far: '#8a6f9e', farTop: '#f6dbe0', mid: '#b48fae', pine: '#6b5584', pineSnow: '#f0d6dc', sun: '#ffd08a' },
+  { band: ['#070d24', '#0b1430', '#0f1c3e', '#14264c', '#1a3058', '#203a64', '#284670', '#30527a', '#3a5e84'], far: '#2c4466', farTop: '#9fb8d8', mid: '#3a5478', pine: '#1f3350', pineSnow: '#8fa8c8', sun: '#e8f0ff', night: 1 }
+];
+function drawKid(x, ox, col, dark, f) {
+  function r(c, a, b, w, h) { x.fillStyle = c; x.fillRect(ox + a, b, w, h); }
+  var bob = (f === 1 || f === 3 || f === 5) ? 1 : 0, air = f === 6 || f === 7, th = f === 8;
+  var y0 = bob;
+  // 다리
+  var legs = {
+    0: [[5, 20, 2, 3], [9, 20, 2, 3]], 1: [[5, 20, 2, 3], [9, 20, 2, 3]],
+    2: [[3, 19, 3, 3], [10, 20, 2, 3]], 3: [[5, 20, 2, 3], [8, 19, 2, 3]], 4: [[10, 19, 3, 3], [5, 20, 2, 3]], 5: [[8, 20, 2, 3], [5, 19, 2, 3]],
+    6: [[4, 19, 2, 2], [9, 18, 3, 2]], 7: [[4, 20, 2, 3], [10, 20, 2, 2]], 8: [[4, 20, 2, 3], [10, 20, 2, 3]]
+  }[f];
+  legs.forEach(function (l) { r(PAL.pants, l[0], l[1] + (air ? 0 : 0), l[2], l[3]); r(PAL.boot, l[0] - (l[2] > 2 ? 0 : 0), l[1] + l[3], l[2] + 1, 1); });
+  // 몸(외투)
+  r(col, 3, 13 + y0, 10, 7); r(dark, 3, 13 + y0, 1, 7); r(dark, 3, 18 + y0, 10, 1); r('#ffffff', 8, 14 + y0, 1, 3);
+  // 목도리(꼬리가 바람에 날려요)
+  r(PAL.scarf, 3, 12 + y0, 10, 2); r(PAL.scarf, f >= 2 && f <= 5 ? 0 : 1, 13 + y0, f >= 2 && f <= 5 ? 3 : 2, 2); r('#e6c66b', 3, 13 + y0, 10, 1);
+  // 얼굴
+  r(PAL.skin, 4, 7 + y0, 8, 5); r(PAL.eye, 8, 8 + y0, 1, 2); r(PAL.eye, 11, 8 + y0, 1, 2); r(PAL.cheek, 10, 10 + y0, 2, 1); r('#e8b48e', 4, 11 + y0, 8, 1);
+  // 털모자 + 방울
+  r(col, 4, 3 + y0, 8, 4); r(col, 5, 2 + y0, 6, 1); r(dark, 4, 6 + y0, 8, 1); r('#ffffff', 3, 6 + y0, 10, 1);
+  r(dark, 6, 3 + y0, 1, 3); r(dark, 9, 3 + y0, 1, 3);
+  r('#ffffff', 6, 0 + y0, 3, 2);
+  // 팔
+  if (th) { r(col, 10, 9 + y0, 2, 5); r(dark, 10, 7 + y0, 3, 2); r('#ffffff', 11, 5 + y0, 3, 3); }
+  else if (air) { r(col, 11, 11 + y0, 2, 3); r(dark, 12, 10 + y0, 2, 2); r(col, 2, 12 + y0, 2, 2); }
+  else { r(col, 9, 15 + y0, 3, 2); r(dark, 12, 15 + y0, 2, 2); }
+}
+var KIDS = [];
+function kidSheet(i) {
+  if (KIDS[i]) return KIDS[i];
+  var c = mkCanvas(KW * KF, KH), x = c.getContext('2d');
+  for (var f = 0; f < KF; f++) drawKid(x, f * KW, COL[i], COLD[i], f);
+  // 칸마다 따로 테두리를 그려요.
+  var out = mkCanvas(KW * KF, KH), ox = out.getContext('2d');
+  for (f = 0; f < KF; f++) { var one = mkCanvas(KW, KH); one.getContext('2d').drawImage(c, f * KW, 0, KW, KH, 0, 0, KW, KH); outline(one, PAL.out); ox.drawImage(one, f * KW, 0); }
+  KIDS[i] = out; return out;
+}
+function ballSprite(big) {
+  var n = big ? 7 : 5, c = mkCanvas(n + 2, n + 2), x = c.getContext('2d');
+  var rows = big ? ['..WWW..', '.WWWWW.', 'WWWWWWW', 'WWWWWWB', 'WWWWWBB', '.WWBBB.', '..BBB..'] : ['.WWW.', 'WWWWW', 'WWWWB', 'WWWBB', '.BBB.'];
+  rows.forEach(function (row, y) { for (var k = 0; k < row.length; k++) if (row[k] !== '.') { x.fillStyle = row[k] === 'W' ? '#ffffff' : '#a9c8ec'; x.fillRect(k + 1, y + 1, 1, 1); } });
+  return outline(c, '#2a4677');
+}
+var View = {
+  ok: false, ctx: null, tiles: null, far: null, mid: null, sky: null, balls: null, flakes: [], tags: [], shake: 0, frame: 0,
+  init: function () {
+    if (!this.ctx) {
+      this.ctx = cv.getContext('2d');
+      if (!this.ctx) { var box = $('#nogl'); box.innerHTML = '이 기기에서는 게임 화면을 그릴 수 없어요.<br>크롬 브라우저 최신 버전에서 다시 열어 주세요.'; box.classList.remove('hide'); return false; }
+      this.balls = [ballSprite(0), ballSprite(1)];
+      this.dragon = [mkDragon(0), mkDragon(1)];
+      for (var k = 0; k < 80; k++) this.flakes.push({ x: Math.random() * 2000, y: Math.random() * IH, s: Math.random() < 0.25 ? 2 : 1, v: 8 + Math.random() * 16, p: Math.random() * 6 });
+    }
+    this.ok = true; return true;
+  },
+  mkSky: function (th) {
+    var c = mkCanvas(4, IH), x = c.getContext('2d'), band = SKY[th || 0].band;
+    for (var y = 0; y < IH; y++) {
+      var u = y / IH * (band.length - 1), k = Math.floor(u), fr = u - k;
+      x.fillStyle = band[k]; x.fillRect(0, y, 4, 1);
+      if (k + 1 < band.length && fr > 0.5) { x.fillStyle = band[k + 1]; for (var i = (y & 1); i < 4; i += 2) x.fillRect(i, y, 1, 1); }   // 줄무늬 사이를 체크무늬로 섞어요
+    }
+    return c;
+  },
+  // 먼 산(천천히 지나가요)
+  mkFar: function (th) {
+    var S = SKY[th || 0], W = 640, c = mkCanvas(W, IH), x = c.getContext('2d'), R = mulberry(11);
+    if (S.night) { for (var st = 0; st < 120; st++) { x.fillStyle = R() < 0.3 ? '#ffffff' : '#9fb8e8'; x.fillRect(Math.floor(R() * W), Math.floor(R() * 120), 1, 1); }
+      ['rgba(80,255,170,.22)', 'rgba(120,200,255,.18)', 'rgba(180,120,255,.14)'].forEach(function (col, j) { x.fillStyle = col; for (var ax = 0; ax < W; ax += 2) { var ay = 30 + j * 12 + Math.round(Math.sin(ax / 70 + j) * 14 + Math.sin(ax / 23) * 4); x.fillRect(ax, ay, 2, 18 + Math.round(Math.sin(ax / 40) * 6)); } }); }
+    var base = IH - 70, pts = [], k;
+    for (k = 0; k <= W; k += 4) pts.push(base - 40 - Math.abs(Math.sin(k / W * Math.PI * 4 + 0.7)) * 55 - Math.sin(k / W * Math.PI * 10) * 8);
+    for (k = 0; k < pts.length; k++) {
+      var px = k * 4, top = Math.round(pts[k]);
+      x.fillStyle = S.far; x.fillRect(px, top, 4, IH - top);
+      x.fillStyle = S.farTop; x.fillRect(px, top, 4, Math.max(2, Math.round((base - 20 - top) * 0.35)));
+    }
+    for (k = 0; k < 60; k++) { x.fillStyle = 'rgba(255,255,255,.5)'; x.fillRect(Math.floor(R() * W), Math.floor(base - 30 - R() * 60), 1, 1); }
+    // 해
+    x.fillStyle = S.sun; x.fillRect(470, 34, 18, 18); x.fillRect(466, 38, 26, 10); x.fillRect(474, 30, 10, 26);
+    return c;
+  },
+  // 가까운 언덕과 전나무(조금 빨리 지나가요)
+  mkMid: function (th) {
+    var S = SKY[th || 0], W = 720, c = mkCanvas(W, IH), x = c.getContext('2d'), R = mulberry(23), k;
+    var base = IH - 46;
+    for (k = 0; k <= W; k += 2) { var top = Math.round(base - 18 - Math.sin(k / W * Math.PI * 6) * 10 - Math.sin(k / W * Math.PI * 14 + 1) * 4); x.fillStyle = S.mid; x.fillRect(k, top, 2, IH - top); }
+    for (k = 0; k < 34; k++) { var tx = Math.floor(R() * W), s = 0.6 + R() * 0.6; pineSil(x, tx, base - 6 + Math.floor(R() * 10), s, S.pine, S.pineSnow); }
+    return c;
+  },
+  // 판마다 눈밭 칸 그림을 한 장으로 미리 그려 둬요.
+  build: function (g) {
+    this.sky = this.mkSky(g.map.sky); this.far = this.mkFar(g.map.sky); this.mid = this.mkMid(g.map.sky);
+    var M = g.map, c = mkCanvas(TW * TILE, IH), x = c.getContext('2d'), R = mulberry(g.seed + 99), tx, ty;
+    function px(c2, a, b, w, h) { x.fillStyle = c2; x.fillRect(a, b, w, h); }
+    for (tx = 0; tx < TW; tx++) for (ty = 0; ty < TH; ty++) {
+      var t = M.g[tx][ty], X = tx * TILE, Y = (TH - 1 - ty) * TILE, up = ty + 1 < TH ? M.g[tx][ty + 1] : 0;
+      if (t === 1 || t === 5) {
+        var deep = ty < M.gh[tx] - 2;
+        px(deep ? '#4b3f63' : '#5d4f78', X, Y, TILE, TILE);
+        for (var k = 0; k < 6; k++) px(R() < 0.5 ? '#6c5e8a' : '#3f3456', X + Math.floor(R() * 15), Y + Math.floor(R() * 15), 2, 1);
+        if (R() < 0.25) { px('#8a7aa8', X + 4 + Math.floor(R() * 6), Y + 5 + Math.floor(R() * 6), 3, 2); px('#3f3456', X + 4, Y + 11, 3, 1); }
+        if (t === 5) {
+          px('#9fe6ff', X, Y, TILE, 5); px('#e8fbff', X, Y, TILE, 1); px('#5fb8e6', X, Y + 5, TILE, 1);
+          px('#ffffff', X + 2 + Math.floor(R() * 4), Y + 2, 5, 1); px('#ffffff', X + 9 + Math.floor(R() * 3), Y + 3, 3, 1);
+        } else if (up !== 1 && up !== 3 && up !== 5) {
+          // 눈 덮인 윗면
+          px('#ffffff', X, Y, TILE, 5); px('#dbe9f8', X, Y + 4, TILE, 1);
+          for (k = 0; k < TILE; k += 2) { var dd = Math.floor(R() * 3); px('#ffffff', X + k, Y + 5, 2, dd); px('#c6dbf2', X + k, Y + 5 + dd, 2, 1); }
+          px('#eaf3fd', X + 2 + Math.floor(R() * 8), Y + 1, 4, 1);
+        }
+        var dn = ty > 0 ? M.g[tx][ty - 1] : 1;
+        if (dn !== 1 && dn !== 5) { px('#3a3050', X, Y + TILE - 2, TILE, 2); for (k = 0; k < 2; k++) if (R() < 0.7) { var ix2 = X + 2 + Math.floor(R() * 12), il2 = 2 + Math.floor(R() * 4); px('#bfefff', ix2, Y + TILE, 2, il2 - 1); px('#bfefff', ix2, Y + TILE - 1 + il2, 1, 1); } }
+        if (tx > 0 && M.g[tx - 1][ty] !== 1 && M.g[tx - 1][ty] !== 5 && tx !== TW - 1) px('#3a3050', X, Y, 1, TILE);
+        if (tx < TW - 1 && M.g[tx + 1][ty] !== 1 && M.g[tx + 1][ty] !== 5 && tx !== 0) px('#3a3050', X + TILE - 1, Y, 1, TILE);
+      } else if (t === 3) {
+        // 눈 벽돌
+        px('#f4f9ff', X, Y, TILE, TILE);
+        px('#a9c2de', X, Y + 7, TILE, 1); px('#a9c2de', X, Y + 15, TILE, 1);
+        px('#a9c2de', X + ((ty & 1) ? 4 : 11), Y, 1, 7); px('#a9c2de', X + ((ty & 1) ? 11 : 4), Y + 8, 1, 7);
+        px('#dce9f7', X, Y + 6, TILE, 1); px('#dce9f7', X, Y + 14, TILE, 1);
+        px('#7f9cc4', X, Y, 1, TILE); px('#7f9cc4', X + TILE - 1, Y, 1, TILE);
+        if (up !== 3) { px('#ffffff', X - 1, Y - 3, TILE + 2, 4); px('#7f9cc4', X - 1, Y - 4, TILE + 2, 1); }
+      } else if (t === 4) {
+        // 눈 트램펄린: 빨간 받침 + 흰 고무판
+        px('#3b4466', X + 2, Y + 8, 2, 8); px('#3b4466', X + 12, Y + 8, 2, 8);
+        px('#ff4d6d', X + 1, Y + 6, 14, 3); px('#a3163c', X + 1, Y + 8, 14, 1);
+        px('#ffffff', X + 2, Y + 3, 12, 3); px('#dbe9f8', X + 2, Y + 5, 12, 1);
+        px('#ffe28a', X + 7, Y, 2, 2); px('#ffe28a', X + 5, Y + 1, 1, 1); px('#ffe28a', X + 10, Y + 1, 1, 1);
+      } else if (t === 2) {
+        // 얼음 발판(위 6픽셀)
+        var lft = tx === 0 || M.g[tx - 1][ty] !== 2, rgt = tx === TW - 1 || M.g[tx + 1][ty] !== 2;
+        px('#2c6aa3', X, Y, TILE, 7); px('#8fe1ff', X, Y + 1, TILE, 4); px('#d9f6ff', X, Y + 1, TILE, 1); px('#5fb8e6', X, Y + 5, TILE, 1);
+        px('#ffffff', X + 3 + Math.floor(R() * 6), Y + 2, 3, 1);
+        if (lft) { px('rgba(0,0,0,0)', X, Y, 1, 1); x.clearRect(X, Y, 1, 1); x.clearRect(X, Y + 6, 1, 1); }
+        if (rgt) { x.clearRect(X + TILE - 1, Y, 1, 1); x.clearRect(X + TILE - 1, Y + 6, 1, 1); }
+        // 고드름
+        for (k = 0; k < 2; k++) if (R() < 0.6) { var ix = X + 2 + Math.floor(R() * 12), il = 2 + Math.floor(R() * 4); px('#bfefff', ix, Y + 7, 2, il - 1); px('#bfefff', ix, Y + 6 + il, 1, 1); }
+        px('#ffffff', X, Y - 1, TILE, 1);
+      }
+    }
+    // 꾸미기
+    M.deco.forEach(function (d) {
+      var X = d.x * TILE, base = (TH - d.y) * TILE;
+      if (d.k === 'm') snowmanPx(x, X + 8, base);
+      else if (d.k === 't') pineSil(x, X + 8, base, 0.55 + d.s * 0.3, '#1f6a4a', '#ffffff', '#123f2c');
+      else if (d.k === 'r') { px('#7d7a9a', X + 3, base - 5, 10, 5); px('#9a97b8', X + 4, base - 6, 7, 2); px('#ffffff', X + 4, base - 7, 7, 2); px('#5a5778', X + 3, base - 1, 10, 1); }
+      else if (d.k === 'l') { px('#3b4466', X + 7, base - 26, 2, 26); px('#3b4466', X + 5, base - 2, 6, 2); px('#ffe28a', X + 5, base - 31, 6, 5); px('#3b4466', X + 4, base - 32, 8, 1); px('#ffffff', X + 4, base - 33, 8, 1); }
+      else { px('#7a5236', X + 2, base - 4, 12, 4); px('#ffffff', X + 1, base - 6, 14, 2); px('#b8d4ee', X + 2, base - 4, 12, 1); }
+    });
+    this.tiles = c;
+    $('#tags').innerHTML = '';
+    this.tags = g.pl.map(function (p, i) {
+      var d = document.createElement('div'); d.className = 'tg';
+      d.innerHTML = '<div class="nmx" style="color:' + COL[i] + '">' + esc(p.name) + '</div><div class="hb"><i></i><b></b></div>';
+      $('#tags').appendChild(d); return { el: d, hp: d.querySelector('.hb i'), sh: d.querySelector('.hb b'), last: '' };
+    });
+    this.miniBase(g);
+    g.camX = null;
+  },
+  pick: function (sx, sy) {
+    var wx = (sx / SC + this.cx) / TILE, wy = TH - (sy / SC + this.cy) / TILE, best = null, bd = 1.6;
+    G.pl.forEach(function (q) { if (q.i === G.me || !canPlay(q.i)) return; var d = Math.abs(pxOf(q) - wx) + Math.abs(pyOf(q) + PH / 2 - wy) * 0.7; if (d < bd) { bd = d; best = q; } });
+    return { x: wx, y: wy, q: best };
+  },
+  render: function (dt) {
+    var g = G, x = this.ctx, p = me(), self = this;
+    x.imageSmoothingEnabled = false;
+    // 카메라: 나를 따라가요(보는 쪽을 조금 더 보여 줘요).
+    var want = pxOf(p) * TILE + p.face * IW * 0.12 - IW / 2, maxX = TW * TILE - IW;
+    want = clamp(want, 0, Math.max(0, maxX));
+    g.camX = g.camX == null ? want : lerp(g.camX, want, Math.min(1, dt * 5));
+    var sk = this.shake > 0 ? (this.shake -= dt, Math.round(rnd(-2, 2))) : 0;
+    var cx = Math.round(g.camX) + sk, cy = 0;
+    if (maxX < 0) cx = Math.round(maxX / 2);
+    this.cx = cx; this.cy = cy;
+    x.drawImage(this.sky, 0, 0, 4, IH, 0, 0, IW, IH);
+    function para(img, k, oy) { var w = img.width, o = -Math.round(cx * k) % w; if (o > 0) o -= w; for (var a = o; a < IW; a += w) x.drawImage(img, a, oy); }
+    para(this.far, 0.15, 0); para(this.mid, 0.4, 0);
+    x.drawImage(this.tiles, cx, 0, IW, IH, 0, 0, IW, IH);
+    function sx(wx) { return Math.round(wx * TILE - cx); }
+    function sy(wy) { return Math.round((TH - wy) * TILE - cy); }
+    // 눈덩이 그림자 없이 바로 그려요.
+    g.balls.forEach(function (b) { var s = self.balls[b.big ? 1 : 0]; x.drawImage(s, sx(b.x) - (s.width >> 1), sy(b.y) - (s.height >> 1)); });
+    // 사람
+    var now = sNow();
+    g.pl.forEach(function (q) {
+      if (!active(q.i)) return;
+      var X = sx(pxOf(q)), Y = sy(pyOf(q)), f = faceOf(q), fz = rFrozen(g.S, q.i, now), safe = !fz && now < g.S.sf[q.i];
+      if (X < -24 || X > IW + 24) return;
+      var fr;
+      var air = localP(q) ? !q.onG : Math.abs(q.vy) > 1.5;
+      if (q.throwT > 0) fr = 8; else if (air) fr = q.vy > 0 ? 6 : 7; else if (q.moving) fr = 2 + (Math.floor(q.walk * 2) % 4); else fr = (Math.floor(Date.now() / 500) % 2);
+      var ifz = !fz && (localP(q) ? q.idle > 0 : (q.f & 32));
+      if (fz || ifz) fr = 0;
+      if (safe && (Math.floor(Date.now() / 90) % 2)) x.globalAlpha = 0.45;
+      x.save(); x.translate(X, Y - KH + 1);
+      if (f < 0) { x.scale(-1, 1); x.drawImage(kidSheet(q.i), fr * KW, 0, KW, KH, -KW / 2, 0, KW, KH); }
+      else x.drawImage(kidSheet(q.i), fr * KW, 0, KW, KH, -KW / 2, 0, KW, KH);
+      x.restore(); x.globalAlpha = 1;
+      if (q.sled > 0 && q.moving && (self.frame & 3) === 0) g.parts.push({ x: pxOf(q) - f * 0.3, y: pyOf(q) + 0.1, vx: -f * 2, vy: 1, life: 0.3, col: '#ffffff' });
+      if (fz || ifz) {
+        x.fillStyle = 'rgba(160,225,255,.55)'; x.fillRect(X - 9, Y - 25, 18, 25);
+        x.fillStyle = '#e8fbff'; x.fillRect(X - 9, Y - 25, 18, 1); x.fillRect(X - 9, Y - 25, 1, 25); x.fillRect(X - 6, Y - 22, 2, 6); x.fillRect(X - 3, Y - 22, 1, 3);
+        x.fillStyle = '#5fb8e6'; x.fillRect(X + 8, Y - 25, 1, 25); x.fillRect(X - 9, Y - 1, 18, 1);
+      }
+      if (!fz && (localP(q) ? q.stun > 0 : (q.f & 16))) { var sa = Date.now() / 200; for (var si = 0; si < 3; si++) { var a2 = sa + si * 2.09; x.fillStyle = si % 2 ? '#ffe28a' : '#ffffff'; x.fillRect(X + Math.round(Math.cos(a2) * 7) - 1, Y - 30 + Math.round(Math.sin(a2) * 2), 3, 1); x.fillRect(X + Math.round(Math.cos(a2) * 7), Y - 31 + Math.round(Math.sin(a2) * 2), 1, 3); } }
+      if (q.i === G.me && !fz) { x.fillStyle = '#ffffff'; x.fillRect(X - 3, Y - 31, 7, 1); x.fillRect(X - 2, Y - 30, 5, 1); x.fillRect(X - 1, Y - 29, 3, 1); x.fillRect(X, Y - 28, 1, 1); }
+    });
+    // 눈 부스러기
+    g.parts.forEach(function (e) { x.fillStyle = e.col; x.fillRect(sx(e.x), sy(e.y), 1, 1); });
+    // 내리는 눈
+    var t = Date.now() / 1000;
+    this.flakes.forEach(function (fl) {
+      fl.y += fl.v * dt; if (fl.y > IH) { fl.y = -2; fl.x = Math.random() * 2000; }
+      var fx = Math.round(((fl.x - cx * 0.7) % IW + IW) % IW + Math.sin(t + fl.p) * 3);
+      x.fillStyle = 'rgba(255,255,255,.85)'; x.fillRect(fx, Math.round(fl.y), fl.s, fl.s);
+    });
+    // 서리용과 냉기바람
+    var st = g.storm;
+    if (st) {
+      var y0 = st.up ? 0 : sy(TH / 2), y1 = st.up ? sy(TH / 2) : IH, bl = Math.floor(Date.now() / 150) % 2;
+      if (st.warn) {
+        x.fillStyle = bl ? 'rgba(143,225,255,.16)' : 'rgba(143,225,255,.06)'; x.fillRect(0, y0, IW, y1 - y0);
+        x.fillStyle = bl ? '#ffffff' : '#8fe1ff';
+        for (var dx2 = (Math.floor(Date.now() / 60) % 8); dx2 < IW; dx2 += 8) { x.fillRect(dx2, st.up ? y1 - 1 : y0, 4, 1); }
+      } else {
+        x.fillStyle = 'rgba(90,180,255,.28)'; x.fillRect(0, y0, IW, y1 - y0);
+        x.fillStyle = '#bfefff'; x.fillRect(0, st.up ? y1 - 2 : y0, IW, 2);
+        for (var w2 = 0; w2 < 70; w2++) {
+          var wy = y0 + ((w2 * 37) % Math.max(1, y1 - y0)), sp2 = 260 + (w2 % 5) * 40, wl = 10 + (w2 % 4) * 6;
+          var wx = ((w2 * 97 + Date.now() / 1000 * sp2 * st.dir) % (IW + 40) + IW + 40) % (IW + 40) - 20;
+          x.fillStyle = w2 % 3 ? '#ffffff' : '#5fb8e6'; x.fillRect(Math.round(wx), wy, wl, 2); x.fillStyle = 'rgba(255,255,255,.5)'; x.fillRect(Math.round(wx) - st.dir * 8, wy, 6, 1);
+        }
+      }
+      // 서리용: 바람이 불어오는 쪽 화면 가장자리에 머리를 내밀어요.
+      var dr = self.dragon[st.warn ? 0 : 1], dy = Math.round((y0 + y1) / 2 - dr.height / 2), slide = st.warn ? Math.min(1, (STORM.warn - st.left) / 0.8) : st.left < 0.8 ? st.left / 0.8 : 1;
+      var dxx = Math.round(-dr.width + dr.width * slide);
+      x.save();
+      if (st.dir > 0) x.drawImage(dr, dxx, dy);
+      else { x.translate(IW, 0); x.scale(-1, 1); x.drawImage(dr, dxx, dy); }
+      x.restore();
+    }
+    // 화면 밖 친구: 가장자리에 화살표
+    g.pl.forEach(function (q) {
+      if (q.i === G.me || !canPlay(q.i)) return;
+      var X = sx(pxOf(q)), Y = clamp(sy(pyOf(q) + PH / 2), 12, IH - 12);
+      if (X >= 0 && X <= IW) return;
+      var L = X < 0, ax = L ? 3 : IW - 4, k;
+      x.fillStyle = COL[q.i];
+      for (k = 0; k < 5; k++) x.fillRect(L ? ax + k : ax - k, Y - (4 - k), 1, (4 - k) * 2 + 1);
+    });
+    // 이름·체력(DOM)
+    g.pl.forEach(function (q, i) {
+      var tg = self.tags[i]; if (!tg) return;
+      var on = active(i), X = sx(pxOf(q)), Y = sy(pyOf(q)) - KH - 1;
+      if (!on || i === G.me || X < -20 || X > IW + 20) { if (tg.last !== 'h') { tg.el.style.display = 'none'; tg.last = 'h'; } return; }
+      if (tg.last === 'h') tg.el.style.display = '';
+      tg.last = 's';
+      tg.el.style.transform = 'translate(' + (X * SC).toFixed(1) + 'px,' + (Y * SC).toFixed(1) + 'px) translate(-50%,-100%)';
+      var hp = hpOf(i) / RULE.HP;
+      tg.hp.style.width = (hp * 100) + '%'; tg.hp.style.background = hp > 0.5 ? '#44d18a' : hp > 0.25 ? '#ffb03b' : '#ff4d6d';
+      tg.sh.style.width = (shOf(i) / RULE.SH * 100) + '%';
+      tg.el.classList.toggle('fz', frozen(i));
+    });
+    g.fx.forEach(function (e) {
+      if (e.k !== 'txt') return;
+      if (!e.el) { e.el = document.createElement('div'); e.el.className = 'pop'; e.el.textContent = e.txt; e.el.style.color = e.col; $('#tags').appendChild(e.el); }
+      e.el.style.opacity = String(clamp(e.life / 0.4, 0, 1));
+      e.el.style.transform = 'translate(' + (sx(e.x) * SC).toFixed(1) + 'px,' + (sy(e.y) * SC).toFixed(1) + 'px) translate(-50%,-50%)';
+    });
+    document.querySelectorAll('#tags .pop').forEach(function (el) { if (!g.fx.some(function (e) { return e.el === el; })) el.remove(); });
+    if ((this.frame++ & 3) === 0) this.mini();
+  },
+  // 작은 지도: 눈밭 전체 모양과 친구들 위치
+  miniBase: function (g) {
+    var c = mkCanvas(TW * 2, TH * 2), x = c.getContext('2d');
+    x.fillStyle = 'rgba(20,40,80,.55)'; x.fillRect(0, 0, c.width, c.height);
+    for (var tx = 0; tx < TW; tx++) for (var ty = 0; ty < TH; ty++) {
+      var t = g.map.g[tx][ty]; if (!t) continue;
+      x.fillStyle = t === 1 ? '#e8f2fc' : t === 2 ? '#8fe1ff' : t === 4 ? '#ff4d6d' : t === 5 ? '#9fe6ff' : '#b8cbe4'; x.fillRect(tx * 2, (TH - 1 - ty) * 2, 2, t === 2 ? 1 : 2);
+    }
+    this.miniBg = c;
+    var m = $('#mini'); m.width = c.width; m.height = c.height;
+  },
+  mini: function () {
+    var c = $('#mini').getContext('2d'), now = sNow();
+    c.clearRect(0, 0, TW * 2, TH * 2); c.drawImage(this.miniBg, 0, 0);
+    c.strokeStyle = 'rgba(255,255,255,.8)'; c.lineWidth = 1; c.strokeRect(this.cx / TILE * 2 + 0.5, 0.5, IW / TILE * 2, TH * 2 - 1);
+    G.pl.forEach(function (q) {
+      if (!active(q.i)) return;
+      var X = Math.round(pxOf(q) * 2), Y = Math.round((TH - pyOf(q)) * 2);
+      c.fillStyle = q.i === G.me ? '#ffffff' : rFrozen(G.S, q.i, now) ? '#8fe1ff' : COL[q.i];
+      c.fillRect(X - 2, Y - 4, 4, 4);
+      if (q.i === G.me) { c.fillStyle = COL[q.i]; c.fillRect(X - 1, Y - 3, 2, 2); }
+    });
+  }
+};
+// 서리용(오리지널 픽셀 그림, 오른쪽을 봐요). open: 1이면 입을 벌리고 냉기를 뿜어요.
+function mkDragon(open) {
+  var c = mkCanvas(66, 50), x = c.getContext('2d');
+  function r(col, a, b, w, h) { x.fillStyle = col; x.fillRect(a, b, w, h); }
+  var B = '#6fb8e8', D = '#3f7fb8', L = '#d9f6ff', H = '#f4fdff';
+  r(B, 1, 20, 22, 14); r(D, 1, 30, 22, 4); r(L, 4, 32, 18, 2);          // 목
+  for (var k = 0; k < 4; k++) { r(H, 3 + k * 5, 17 - (k % 2), 3, 3); r(H, 4 + k * 5, 15 - (k % 2), 1, 2); }   // 등 가시
+  r(B, 16, 12, 26, 20); r(D, 16, 28, 26, 4);                                // 머리
+  r(B, 38, 16, 18, 10); r(D, 38, 24, 18, 2);                               // 주둥이
+  r(D, 52, 18, 2, 2);                                                      // 콧구멍
+  if (open) { r('#1a2c4a', 40, 26, 16, 6); r(H, 42, 26, 2, 2); r(H, 47, 26, 2, 2); r(H, 52, 26, 2, 2); r(B, 38, 32, 16, 4); r(L, 40, 34, 12, 2); r('#bfefff', 56, 26, 8, 6); r(H, 60, 28, 4, 2); }
+  else { r(B, 38, 26, 18, 6); r(D, 38, 30, 18, 2); r(H, 44, 26, 2, 2); r(H, 50, 26, 2, 2); }
+  r(H, 18, 4, 3, 8); r(H, 19, 1, 2, 3); r(H, 26, 6, 3, 6); r(H, 27, 3, 2, 3); r('#bfefff', 18, 10, 11, 2);   // 얼음 뿔
+  r('#ffe28a', 30, 15, 5, 4); r('#1a1a22', 33, 15, 2, 4); r(D, 29, 13, 7, 2);   // 눈
+  r(L, 20, 22, 6, 2); r(L, 24, 25, 4, 1);
+  return outline(c, '#102040');
+}
+function pineSil(x, cx, base, s, col, snow, trunk) {
+  var h = Math.round(46 * s), w = Math.round(14 * s);
+  x.fillStyle = trunk || col; x.fillRect(cx - 1, base - Math.round(6 * s), 3, Math.round(6 * s));
+  for (var k = 0; k < 3; k++) {
+    var top = base - Math.round(6 * s) - Math.round(h * (0.36 + k * 0.28)), bot = base - Math.round(5 * s) - Math.round(h * k * 0.24);
+    for (var y = top; y < bot; y++) { var ww = Math.round((y - top + 1) / (bot - top) * (w - k * 2 * s)); x.fillStyle = col; x.fillRect(cx - ww, y, ww * 2 + 1, 1); if (y - top < 2 || (y === bot - 1)) { x.fillStyle = snow; x.fillRect(cx - ww, y, ww * 2 + 1, 1); } }
+  }
+}
+function snowmanPx(x, cx, base) {
+  function r(c, a, b, w, h) { x.fillStyle = c; x.fillRect(a, b, w, h); }
+  r('#7f9cc4', cx - 7, base - 11, 14, 11); r('#ffffff', cx - 6, base - 12, 12, 11); r('#dbe9f8', cx - 6, base - 3, 12, 2);
+  r('#7f9cc4', cx - 5, base - 20, 10, 9); r('#ffffff', cx - 4, base - 20, 8, 8);
+  r('#1a1a22', cx - 2, base - 18, 1, 1); r('#1a1a22', cx + 1, base - 18, 1, 1); r('#ff8a2a', cx + 1, base - 16, 3, 1);
+  r('#1a1a22', cx - 4, base - 24, 8, 4); r('#1a1a22', cx - 5, base - 21, 10, 1); r('#ff4d6d', cx - 4, base - 22, 8, 1);
+  r('#1a1a22', cx, base - 9, 1, 1); r('#1a1a22', cx, base - 6, 1, 1);
+  r('#6b4a2e', cx - 10, base - 14, 4, 1); r('#6b4a2e', cx + 6, base - 15, 4, 1); r('#6b4a2e', cx + 9, base - 17, 1, 2);
+}
+function layout() {
+  var r = cv.parentNode.getBoundingClientRect();
+  VW = Math.max(200, r.width || 640); VH = Math.max(160, r.height || 360);
+  SC = VH / IH; IW = Math.max(120, Math.round(VW / SC));
+  cv.width = IW; cv.height = IH;
+  if (View.ctx) View.ctx.imageSmoothingEnabled = false;
+}
+window.addEventListener('resize', function () { if (G) layout(); });
+// ===== 조작 =====
+// 컴퓨터: ←→(A·D) 달리기 · ↑(W·K) 점프 · ↓(S) 얼음 발판 아래로 · 스페이스(J) 자동 조준 던지기 · 화면 클릭 그곳에 던지기 · 1~4 답
+// 태블릿·휴대폰: 왼쪽 아래 ◀ ▼ ▶, 오른쪽 아래 ⤒ 점프 · ⚪ 던지기, 화면을 톡 누르면 그곳에 던지기
+document.addEventListener('keydown', function (e) {
+  if (!G || G.over || $('#game').classList.contains('hide')) return;
+  if (e.target && e.target.tagName === 'INPUT') return;
+  if (!e.repeat && /^(ArrowUp|KeyW|KeyK)$/.test(e.code)) jumpQ = true;
+  keys[e.code] = true;
+  if (/^Digit[1-4]$|^Numpad[1-4]$/.test(e.code)) { answer(+e.code.slice(-1) - 1); e.preventDefault(); return; }
+  if (e.code === 'Space' || /^Arrow/.test(e.code)) e.preventDefault();
+});
+document.addEventListener('keyup', function (e) { keys[e.code] = false; });
+window.addEventListener('blur', function () { keys = {}; padOff(); });
+var Pad = { l: 0, r: 0, j: 0, d: 0 }, fireHold = 0, jumpQ = false;
+function padOff() { Pad.l = Pad.r = Pad.j = Pad.d = 0; fireHold = 0; document.querySelectorAll('.tb').forEach(function (b) { b.classList.remove('on'); }); }
+function viewXY(e) { var r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * VW / r.width, y: (e.clientY - r.top) * VH / r.height }; }
+function throwAt(sx, sy) {
+  if (!G || !canPlay(G.me) || !View.ok) return;
+  var p = me(), pt = View.pick(sx, sy);
+  fire(p, pt.q ? leadAim(p, pt.q, 0.85, 0) : aimVel(p.x, p.y + HAND, pt.x, pt.y));
+}
+cv.addEventListener('pointerdown', function (e) {
+  if (!G || G.over) return;
+  e.preventDefault();
+  var v = viewXY(e);
+  throwAt(v.x, v.y);
+});
+cv.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+// 화면 버튼: 누르고 있는 동안 켜져요(여러 손가락 동시에).
+document.querySelectorAll('.tb').forEach(function (b) {
+  var k = b.dataset.k;
+  function on(e) { e.preventDefault(); b.classList.add('on'); if (k === 'f') { fireHold = 1; if (G && canPlay(G.me)) autoThrow(me()); } else { Pad[k] = 1; if (k === 'j') jumpQ = true; } try { b.setPointerCapture(e.pointerId); } catch (x) {} }
+  function off() { b.classList.remove('on'); if (k === 'f') fireHold = 0; else Pad[k] = 0; }
+  b.addEventListener('pointerdown', on);
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (t) { b.addEventListener(t, off); });
+  b.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+});
+
+// ===== 온라인 동기화 =====
+// 약 1초마다: 내 위치 기록(0.12초 간격)과 던진 눈덩이를 보내고, 친구들의 기록·사건(명중·회복)·대전 상태를 받아요.
+var Sync = null;
+function startSync(code) {
+  stopSync();
+  Sync = { code: code, busy: false, timer: null, fails: 0, onRoom: null, stopped: false, best: 1e9, off: 0 };
+  Sync.kick = function () { if (!Sync.busy && !Sync.stopped) { clearTimeout(Sync.timer); syncTick(); } };
+  syncTick();
+}
+function stopSync() { if (Sync) { Sync.stopped = true; clearTimeout(Sync.timer); } Sync = null; }
+function flagsOf(p) { return (p.sled > 0 ? 2 : 0) | (p.big > 0 ? 4 : 0) | (p.onG ? 0 : 8) | (p.stun > 0 ? 16 : 0) | (p.idle > 0 ? 32 : 0); }
+function cm(v) { return Math.round(v * 100); }
+function syncTick() {
+  var S = Sync; if (!S || S.stopped) return;
+  S.busy = true;
+  var arg = { code: S.code, sid: SID }, inGame = G && G.mode === 'net' && !G.over, t0 = Date.now(), nP = 0, nS = 0;
+  if (inGame) {
+    var p = me();
+    nP = G.sendP.length; nS = G.sendS.length;
+    arg.since = G.contig;
+    var recs = G.sendP.length ? G.sendP : [[p.x, p.y, p.face > 0 ? 0 : Math.PI, t0]];
+    arg.k = {
+      p: recs.map(function (r) { var a = Math.atan2(Math.sin(r[2]), Math.cos(r[2])); return [cm(r[0]), cm(r[1]), Math.round(a * 100), Math.max(0, t0 - r[3])]; }),
+      s: G.sendS.map(function (r) { return [cm(r[0]), cm(r[1]), cm(r[2]), cm(r[3]), cm(r[4]), Math.max(0, t0 - r[5]), r[6]]; }),
+      ok: G.ok, f: flagsOf(p)
+    };
+  }
+  Net.call('sync', arg).then(function (r) {
+    if (S.stopped) return;
+    if (!r || !r.ok) { S.fails++; if (r && r.gone) { S.stopped = true; roomGone(r.msg); } return; }
+    S.fails = 0;
+    var t1 = Date.now();
+    if (t1 - t0 < S.best) { S.best = t1 - t0; S.off = r.now - (t0 + t1) / 2; }
+    if (inGame && G && G.mode === 'net' && !G.over) { G.sendP.splice(0, nP); G.sendS.splice(0, nS); }
+    if (G && G.mode === 'net' && !G.over && G.net && G.net.code === S.code) netRecv(r);
+    if (S.onRoom) S.onRoom(r);
+  }).catch(function () { S.fails++; }).then(function () {
+    S.busy = false;
+    if (!S.stopped) S.timer = setTimeout(syncTick, S.fails ? Math.min(6000, 1000 + S.fails * 1000) : (Net.syncMs || 800));
+  });
+}
+function netRecv(r) {
+  if (r.st !== 'play') return;
+  if (!G.ending && r.startAt) { G.t0s = r.startAt + r.lead; G.start = G.t0s - Sync.off; }
+  if (r.ps && (r.ps.v || 0) >= (G.S.v || 0)) G.S = r.ps;
+  (r.fires || []).forEach(recvEvent);
+  (r.ks || []).forEach(function (k, i) {
+    var p = G.pl[i]; if (!k || !p || i === G.me) return;
+    p.ok = k.ok | 0; p.f = k.f | 0;
+    var last = p.samples.length ? p.samples[p.samples.length - 1].t : 0;
+    (k.p || []).forEach(function (s) {
+      var t = k.st - s[3];
+      if (t > last + 1) { p.samples.push({ t: t, x: s[0] / 100, y: s[1] / 100, a: s[2] / 100 }); last = t; }
+    });
+    if (p.samples.length > 60) p.samples.splice(0, p.samples.length - 60);
+    (k.s || []).forEach(function (s) {
+      var t = k.st - s[5];
+      if (t > p.lastShotT + 1) { p.shots.push({ t: t, x: s[0] / 100, y: s[1] / 100, v: [s[2] / 100, s[3] / 100], big: s[6] }); p.lastShotT = t; }
+    });
+  });
+  if (r.ps && r.ps.end) G.srvDone = true;
+  if (r.now > r.startAt + r.lead + r.dur + r.grace + 300) G.srvDone = true;
+}
+// 친구 모습: 조금 전 위치 기록 사이를 이어 그리고, 그때 던진 눈덩이를 띄워요.
+function interpPeers(dt) {
+  var rt = sNow() - DELAY;
+  G.pl.forEach(function (q) {
+    if (q.i === G.me) return;
+    var s = q.samples;
+    if (s.length) {
+      var j = 0; while (j < s.length - 1 && s[j + 1].t <= rt) j++;
+      var A = s[j], B2 = s[Math.min(j + 1, s.length - 1)], u = B2.t > A.t ? clamp((rt - A.t) / (B2.t - A.t), 0, 1) : 0;
+      var nx = lerp(A.x, B2.x, u), ny = lerp(A.y, B2.y, u), dd = Math.abs(nx - q.rx) + Math.abs(ny - q.ry);
+      var kk = Math.min(1, dt * 10);
+      if (dd < 3) { q.vx = lerp(q.vx, (nx - q.rx) / Math.max(dt, 1e-3), kk); q.vy = lerp(q.vy, (ny - q.ry) / Math.max(dt, 1e-3), kk); } else { q.vx = q.vy = 0; }
+      q.moving = Math.abs(q.vx) > 0.4 && dd < 3; if (q.moving) q.walk += Math.abs(nx - q.rx) * 1.6;
+      q.rx = nx; q.ry = ny;
+      q.rface = Math.cos(u < 0.5 ? A.a : B2.a) >= 0 ? 1 : -1;
+      if (j > 0 && s.length > 30) s.splice(0, j - 1);
+    }
+    while (q.shots.length && q.shots[0].t <= rt) { var b = q.shots.shift(); if (active(q.i)) { spawnBall(q.i, b.x, b.y, b.v, b.big, false); q.throwT = 0.3; if (Math.abs(b.v[0]) > 0.3) q.rface = b.v[0] > 0 ? 1 : -1; } }
+  });
+}
+function roomGone(msg) {
+  if (G && G.mode === 'net' && !G.over) { toast(msg || '방이 없어졌어요.', 3); G.srvDone = true; if (!G.ending) endPlay('연결이 끊겼어요'); }
+  else if (!$('#lobby').classList.contains('hide')) { $('#lbMsg').textContent = '❌ ' + (msg || '방이 없어졌어요.'); lbWaiting(false); }
+}
+
+// ===== 결과 =====
+function gameOver() {
+  if (G.over) return;
+  var S = G.S, rank = rRank(S), my = rank[G.me], tie = rank.filter(function (r) { return r === 1; }).length > 1;
+  G.over = true; stopSync();
+  keys = {}; padOff();
+  var quit = !!G.quitMe;
+  show('result');
+  $('#rsHead').textContent = quit ? '대전에서 나갔어요' : my === 1 ? (tie ? '🤝 공동 1위!' : '🏆 1위! 픽셀 눈싸움 왕!') : my + '위';
+  $('#rsSub').textContent = '점수 ' + rScore(S, G.me) + '점 · 맞힌 눈덩이 ' + S.hit[G.me] + '개 · 꽁꽁 ' + S.ko[G.me] + '번 · 맞힌 문제 ' + G.ok + '개 / 푼 문제 ' + Math.max(0, G.nq - (G.q && !G.q.done ? 1 : 0)) + '개';
+  var order = G.pl.map(function (p, i) { return i; }).sort(function (a, b) { return rank[a] - rank[b] || a - b; });
+  $('#rsTbl').innerHTML = '<tr><th>순위</th><th>이름</th><th>🏆 점수</th><th>⚪ 명중</th><th>🧊 꽁꽁</th><th>🥶 당함</th><th>정답</th></tr>' + order.map(function (i) {
+    var p = G.pl[i];
+    return '<tr' + (i === G.me ? ' class="me"' : '') + '><td>' + rank[i] + '</td><td class="nm">' + DOT[i] + ' ' + esc(p.name) + (S.q[i] ? ' (나감)' : '') + '</td><td>' + rScore(S, i) + '</td><td>' + S.hit[i] + '</td><td>' + S.ko[i] + '</td><td>' + S.dn[i] + '</td><td>' + (i === G.me ? G.ok : p.ok) + '</td></tr>';
+  }).join('');
+  $('#rsWrong').innerHTML = G.wrongs.length ? G.wrongs.map(function (w) {
+    return '<div class="w"><div>' + mathHtml(w.q) + '</div><div class="a">정답: ' + mathHtml(w.a) + ' · 내 답: ' + mathHtml(w.my) + '</div><div class="e">' + mathHtml(w.e) + '</div></div>';
+  }).join('') : '<div class="note">틀린 문제가 없어요. 훌륭해요! 👏</div>';
+  var rec = store.get('rec', []);
+  rec.unshift({ names: G.pl.map(function (p) { return p.name; }), win: tie ? -1 : rank.indexOf(1), mode: G.mode, me: G.me, my: my, sc: rScore(S, G.me) });
+  store.set('rec', rec.slice(0, 20));
+  $('#rsCoin').textContent = '🪙 계산 중…'; $('#rsCoinNote').textContent = '';
+  if (G.mode === 'net') saveNet(quit);
+  else {
+    $('#rsSaveCard').classList.add('hide');
+    var g0 = G;
+    walletCpu(my === 1, g0.lv, g0.ok).then(function (r) { showCoin(r, '컴퓨터 연습: 1위 보너스 ' + (my === 1 ? CPU_WIN_COIN[g0.lv] : 0) + ' + 정답 코인 ' + Math.min(CPU_OK_MAX, g0.ok) + (Net ? ' (연습 코인은 하루 100까지)' : '')); })
+      .catch(function (e) { $('#rsCoin').textContent = '🪙 저장 실패'; $('#rsCoinNote').textContent = String(e && e.message ? e.message : e); });
+  }
+}
+function showCoin(r, why) {
+  if (!r || !r.ok) { $('#rsCoin').textContent = '🪙 +0'; $('#rsCoinNote').textContent = (r && r.msg) || ''; return; }
+  $('#rsCoin').textContent = '🪙 +' + (r.add | 0);
+  $('#rsCoinNote').textContent = why + ' · 내 코인 ' + (r.coin | 0) + (r.capped ? ' · 오늘 연습 코인을 다 받았어요' : '');
+  if (r.add > 0) beep('coin');
+  Wallet.coin = r.coin | 0; if (r.up) Wallet.up = rUps_(r.up);
+}
+function saveNet(quit) {
+  $('#rsSaveCard').classList.remove('hide');
+  var box = $('#rsSave'), g0 = G, tries = 0;
+  box.textContent = '대전 기록을 저장하는 중…';
+  function go() {
+    tries++;
+    Net.call('saveResult', { code: g0.net.code, sid: SID, ok: g0.ok, nq: g0.nq, quit: quit ? 1 : 0 }).then(function (r) {
+      if (r && r.ok) { box.textContent = '✅ ' + r.msg; showCoin(r, quit ? '나가면 코인이 없어요' : '순위 코인 + 정답 코인(정답 1개 2코인, 최대 20)'); return; }
+      fail(r && r.msg);
+    }).catch(function (e) { fail(e && e.message ? e.message : String(e)); });
+  }
+  function fail(msg) {
+    if (tries < 3) { box.textContent = '다시 저장하는 중… (' + (msg || '') + ')'; setTimeout(go, 800 + Math.random() * 1500); return; }
+    box.textContent = '❌ 기록을 저장하지 못했어요: ' + (msg || '') + ' — 선생님께 이름과 결과를 알려 주세요.';
+    $('#rsCoin').textContent = '🪙 저장 실패';
+  }
+  go();
+}
+
+// ===== 첫 화면 =====
+function needName() { if (!myName()) { $('#homeMsg').textContent = '이름을 먼저 써 주세요.'; $('#nm').focus(); return true; } return false; }
+function saveForm() { store.set('form', { nm: $('#nm').value, cl: $('#cl').value, lv: LV }); }
+function uniqNames(list) {
+  var seen = {};
+  return list.map(function (n) { var b = n, k = 2; while (seen[n]) n = b + k++; seen[n] = 1; return n; });
+}
+var LAST = { mode: 'cpu', cpu: 3 }, LV = 1;
+function startCpu(k) {
+  if (needName()) return;
+  if (Net && !myCls()) { $('#homeMsg').textContent = '반 코드를 써 주세요. 코인을 저장할 때 써요.'; $('#cl').focus(); return; }
+  saveForm(); LAST = { mode: 'cpu', cpu: k };
+  var go = function () {
+    var names = [myName()], ups = [Wallet.up.slice()];
+    for (var i = 1; i <= k; i++) { names.push('컴퓨터' + (k > 1 ? i : '') + ' 🤖'); ups.push(BOT[LV].up); }
+    var t0 = Date.now() + 3000;
+    newGame('cpu', uniqNames(names), 0, null, t0, LV, t0, Math.floor(Math.random() * 2147483646) + 1, ups);
+  };
+  if (Wallet.ok && Wallet.key === wKey()) go(); else walletLoad().then(go, go);
+}
+document.querySelectorAll('[data-cpu]').forEach(function (b) { b.onclick = function () { startCpu(+b.dataset.cpu); }; });
+function setLv(v) { LV = v; document.querySelectorAll('#lvSeg button').forEach(function (b) { b.classList.toggle('on', +b.dataset.lv === v); }); }
+document.querySelectorAll('#lvSeg button').forEach(function (b) { b.onclick = function () { setLv(+b.dataset.lv); saveForm(); }; });
+$('#goNet').onclick = function () {
+  if (!Net) { $('#homeMsg').innerHTML = '친구와 <b>온라인 눈싸움</b>은 선생님이 나눠 준 <b>게임 주소(깃허브 페이지)</b>에서 할 수 있어요. 여기서는 컴퓨터와 연습할 수 있어요.'; return; }
+  if (needName()) return;
+  if (!myCls()) { $('#homeMsg').textContent = '반 코드를 써 주세요. 같은 반 친구와 매칭하고 코인을 저장할 때 써요.'; $('#cl').focus(); return; }
+  saveForm(); LAST = { mode: 'net' }; openLobby();
+};
+$('#quitBtn').onclick = function () {
+  if (!G || G.over) return;
+  if (Date.now() - (G.quitArm || 0) > 3000) { G.quitArm = Date.now(); toast(G.mode === 'net' ? '한 번 더 누르면 대전에서 나가요(코인 없음).' : '한 번 더 누르면 처음으로 가요(코인 없음).', 3); return; }
+  if (G.mode === 'net') {
+    G.quitMe = true;
+    if (active(G.me)) { rQuit(G.S, G.me); Net.call('shoot', { code: G.net.code, sid: SID, e: { t: 'q', id: (G.me + 1) * 1000000 + (++G.fid) } }).catch(function () {}); }
+    gameOver();
+  } else { G.over = true; G = null; show('home'); loadRank(); walletLoad(); }
+};
+$('#rsHome').onclick = function () { G = null; show('home'); loadRank(); walletLoad(); };
+$('#rsShop').onclick = function () { G = null; show('home'); loadRank(); walletLoad(); setTimeout(function () { $('#shopCard').scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50); };
+$('#rsAgain').onclick = function () { G = null; if (LAST.mode === 'net') openLobby(); else startCpu(LAST.cpu || 3); };
+var wT = 0;
+['#nm', '#cl'].forEach(function (id) {
+  $(id).addEventListener('change', function () { loadRank(); walletLoad(); });
+  $(id).addEventListener('input', function () { clearTimeout(wT); Wallet.ok = false; renderShop(); wT = setTimeout(walletLoad, 700); });
+});
+
+// ----- 대기실(온라인): 빠른 매칭 · 방 만들기 · 방 번호로 들어가기 -----
+var LB = { code: null, poll: null };
+function openLobby() {
+  show('lobby');
+  $('#lbWho').textContent = myName() + ' · 반 코드 ' + myCls();
+  $('#lbMsg').textContent = ''; $('#lbIn').value = '';
+  lbWaiting(false);
+  refreshRooms();
+  clearInterval(LB.poll); LB.poll = setInterval(function () { if (!$('#lobby').classList.contains('hide') && !LB.code) refreshRooms(); }, 3000);
+}
+function lbWaiting(on) {
+  if (!on) { LB.code = null; }
+  $('#lbWait').classList.toggle('hide', !on);
+  ['#lbMatchCard', '#lbJoinCard'].forEach(function (id) { $(id).classList.toggle('hide', on); });
+}
+function refreshRooms() {
+  Net.call('listRooms', { cls: myCls() }).then(function (list) {
+    var box = $('#lbRooms');
+    if (!list || !list.length) { box.innerHTML = '<div class="note">아직 기다리는 방이 없어요. 빠른 매칭을 누르면 새 방이 생겨요.</div>'; return; }
+    box.innerHTML = list.map(function (r) { return '<button data-code="' + esc(r.c) + '">' + esc(r.n) + '의 방 · ' + r.k + '/6명 <span>' + esc(r.c) + '</span></button>'; }).join('');
+    box.querySelectorAll('button').forEach(function (b) { b.onclick = function () { lbEnter('joinRoom', { code: b.dataset.code }); }; });
+  }).catch(function (e) { $('#lbRooms').innerHTML = '<div class="note">방 목록을 못 불러왔어요: ' + esc(e && e.message ? e.message : e) + '</div>'; });
+}
+function lbEnter(fn, extra) {
+  var btns = document.querySelectorAll('#lobby .btn'); btns.forEach(function (b) { b.disabled = true; });
+  $('#lbMsg').textContent = { quickMatch: '함께할 친구를 찾는 중…', createRoom: '방을 만드는 중…', joinRoom: '방에 들어가는 중…' }[fn];
+  var arg = { cls: myCls(), name: myName(), sid: SID };
+  for (var k in extra) arg[k] = extra[k];
+  Net.call(fn, arg).then(function (r) {
+    btns.forEach(function (b) { b.disabled = false; });
+    if (!r || !r.ok) { $('#lbMsg').textContent = '❌ ' + (r && r.msg ? r.msg : '들어가지 못했어요.'); refreshRooms(); return; }
+    $('#lbMsg').textContent = '';
+    enterWait(r.code);
+  }).catch(function (e) { btns.forEach(function (b) { b.disabled = false; }); $('#lbMsg').textContent = '❌ 서버에 연결하지 못했어요: ' + (e && e.message ? e.message : e); });
+}
+function enterWait(code) {
+  LB.code = code; lbWaiting(true);
+  $('#lbCode').textContent = code; $('#lbPlayers').innerHTML = ''; $('#lbWaitMsg').textContent = '연결하는 중…'; $('#lbStart').classList.add('hide');
+  startSync(code);
+  Sync.onRoom = function (s) {
+    if (LB.code !== code) return;
+    var names = s.names || [];
+    $('#lbPlayers').innerHTML = names.map(function (n, i) { return '<span class="pl" style="--c:' + COL[i] + '">' + DOT[i] + ' ' + esc(n) + (i === s.you ? ' (나)' : '') + (i === 0 ? ' 👑' : '') + '</span>'; }).join('') +
+      Array(Math.max(0, 6 - names.length) + 1).join('<span class="pl empty">빈 자리</span>');
+    if (s.st === 'play') {
+      Sync.onRoom = null; LB.code = null; clearInterval(LB.poll);
+      var st = s.startAt + s.lead - Sync.off;
+      newGame('net', uniqNames(names), s.you, { code: code, cls: myCls() }, st, 0, s.startAt + s.lead, s.seed, null, s.ps);
+      netRecv(s);
+      return;
+    }
+    if (names.length < 2) $('#lbWaitMsg').textContent = '친구가 들어오기를 기다리는 중… (2~6명)';
+    else $('#lbWaitMsg').textContent = names.length + '명 모였어요! ' + Math.max(0, Math.ceil((s.autoIn || 0) / 1000)) + '초 뒤 자동 시작 (6명이 되면 바로 시작)';
+    $('#lbStart').classList.toggle('hide', !(s.you === 0 && names.length >= 2));
+  };
+}
+$('#lbQuick').onclick = function () { lbEnter('quickMatch', {}); };
+$('#mkRoom').onclick = function () { lbEnter('createRoom', {}); };
+$('#lbJoin').onclick = function () { var c = $('#lbIn').value.replace(/\D/g, ''); if (c.length !== 4) { $('#lbMsg').textContent = '방 번호 4자리를 써 주세요.'; return; } lbEnter('joinRoom', { code: c }); };
+$('#lbStart').onclick = function () {
+  if (!LB.code) return;
+  $('#lbStart').disabled = true;
+  Net.call('startRoom', { code: LB.code, sid: SID }).then(function (r) { $('#lbStart').disabled = false; if (r && !r.ok) $('#lbMsg').textContent = '❌ ' + r.msg; if (Sync) Sync.kick(); })
+    .catch(function () { $('#lbStart').disabled = false; });
+};
+$('#lbCancel').onclick = function () {
+  if (LB.code) Net.call('leaveRoom', { code: LB.code, sid: SID }).catch(function () {});
+  stopSync(); lbWaiting(false); refreshRooms();
+};
+$('#lbBack').onclick = function () { $('#lbCancel').onclick(); clearInterval(LB.poll); show('home'); loadRank(); };
+
+function loadRank() {
+  var box = $('#rkHome');
+  if (Net) {
+    var cls = myCls();
+    $('#rkTitle').textContent = '🏆 ' + (cls ? cls + ' ' : '') + '순위 (온라인 1위 횟수)';
+    Net.call('getRanking', cls).then(function (list) {
+      box.innerHTML = list && list.length ? list.map(function (r, i) {
+        return '<li><span class="n">' + (i + 1) + '</span><span class="s">' + esc(r.name) + ' <span class="c">' + esc(r.cls) + '</span></span><span class="s">1위 ' + r.w + ' · ' + r.g + '판</span></li>';
+      }).join('') : '<li><span class="n">-</span><span class="s">아직 기록이 없어요</span><span></span></li>';
+    }).catch(function () { box.innerHTML = '<li><span class="n">!</span><span class="s">순위를 불러오지 못했어요</span><span></span></li>'; });
+  } else {
+    $('#rkTitle').textContent = '📜 이 기기 최근 대전';
+    var list = store.get('rec', []);
+    box.innerHTML = list.length ? list.slice(0, 8).map(function (r, i) {
+      return '<li><span class="n">' + (i + 1) + '</span><span class="s">' + esc(r.names.length + '명 · 나 ' + (r.my || '-') + '위') + ' <span class="c">' + ({ cpu: '컴퓨터', net: '온라인' }[r.mode] || '') + '</span></span><span class="s">' + (r.sc | 0) + '점</span></li>';
+    }).join('') : '<li><span class="n">-</span><span class="s">아직 기록이 없어요</span><span></span></li>';
+  }
+}
+// 첫 화면 그림: 픽셀 눈밭에서 눈싸움
+function demo() {
+  var c = $('#demo'), x = c.getContext('2d'), W = 220, H = 100;
+  x.imageSmoothingEnabled = false;
+  var sky = View.mkSky(), far = View.mkFar(), mid = View.mkMid();
+  x.drawImage(sky, 0, 0, 4, IH, 0, 0, W, H);
+  x.drawImage(far, 40, 95, W, H, 0, 0, W, H); x.drawImage(mid, 100, 125, W, H, 0, 0, W, H);
+  function r(c2, a, b, w, h) { x.fillStyle = c2; x.fillRect(a, b, w, h); }
+  // 땅
+  r('#5d4f78', 0, 80, W, 20); r('#ffffff', 0, 76, W, 5); r('#dbe9f8', 0, 80, W, 1);
+  r('#5d4f78', 150, 68, 70, 12); r('#ffffff', 150, 64, 70, 5); r('#3a3050', 150, 64, 1, 16);
+  // 얼음 발판
+  r('#2c6aa3', 70, 44, 48, 7); r('#8fe1ff', 70, 45, 48, 4); r('#d9f6ff', 70, 45, 48, 1); r('#bfefff', 80, 51, 2, 3); r('#bfefff', 104, 51, 2, 4);
+  // 눈 벽돌
+  r('#f4f9ff', 104, 60, 14, 16); r('#a9c2de', 104, 67, 14, 1); r('#a9c2de', 110, 60, 1, 7); r('#7f9cc4', 104, 60, 1, 16); r('#7f9cc4', 117, 60, 1, 16); r('#ffffff', 103, 57, 16, 4);
+  snowmanPx(x, 30, 77);
+  pineSil(x, 200, 64, 0.5, '#1f6a4a', '#ffffff', '#123f2c');
+  function kid(i, X, Y, f, face) { x.save(); x.translate(X, Y - KH + 1); if (face < 0) x.scale(-1, 1); x.drawImage(kidSheet(i), f * KW, 0, KW, KH, -KW / 2, 0, KW, KH); x.restore(); }
+  kid(0, 56, 77, 8, 1); kid(1, 170, 65, 2, -1); kid(2, 92, 44, 6, 1);
+  // 날아가는 눈덩이 궤적
+  for (var k = 0; k < 12; k++) { var t = k / 11, bx = 66 + t * 96, by = 58 - Math.sin(t * Math.PI) * 22; r('rgba(255,255,255,.75)', Math.round(bx), Math.round(by), 1, 1); }
+  x.drawImage(View.balls ? View.balls[0] : ballSprite(0), 140, 44);
+}
+(function init() {
+  var f = store.get('form', {});
+  ['nm', 'cl'].forEach(function (k) { $('#' + k).value = f[k] || ''; });
+  setLv(f.lv == null ? 1 : f.lv);
+  if (!Net) $('#netSub').textContent = '선생님이 나눠 준 게임 주소에서만 돼요';
+  if (/KAKAOTALK|NAVER|Instagram|FBAN|FBAV|Line\//i.test(navigator.userAgent)) $('#inapp').classList.remove('hide');
+  if (Net && Net.error) { var fe = Net.error(); if (fe) { $('#nofb').textContent = '⚠️ 온라인 대전 준비가 덜 됐어요: ' + fe + ' (선생님께 알려 주세요. 컴퓨터 연습은 할 수 있어요.)'; $('#nofb').classList.remove('hide'); } }
+  try { demo(); } catch (e) {}
+  renderShop(); walletLoad();
+  loadRank();
+  if (typeof teacherInit === 'function') teacherInit();
+  requestAnimationFrame(loop);
+})();
+</script>
+
+</body>
+</html>
