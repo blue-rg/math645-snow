@@ -233,7 +233,7 @@ details[open] { display: flex; flex-direction: column; gap: 8px; }
     <ul class="rules">
       <li>한 판에 <b>2~6명</b>이 옆으로 긴 픽셀 눈밭(가로 120칸)에서 <b>4분</b> 동안 눈싸움을 해요. 체력 <b>100</b>, 눈덩이 한 개에 <b>20</b> 피해.</li>
       <li>눈덩이는 <b>문제를 맞혀야</b> 생겨요. 외항·내항 <b>⚪+2</b> · □ 구하기·비례식 찾기 <b>⚪+3</b> · 어려운 문제 <b>⚪+4</b> (최대 12개).</li>
-      <li>문제 창은 늘 열려 있어요. <b>움직이면서</b> 풀 수 있어요. 틀리면 <b>눈덩이 1개가 없어지고</b>(눈덩이가 0개면 <b>2초 동안 못 움직여요</b>) 풀이를 <b>3초</b> 보고 다음 문제로 넘어가요.</li>
+      <li>문제 창은 늘 열려 있어요. <b>움직이면서</b> 풀 수 있어요. 틀리면 <b>눈덩이 1개가 없어지고</b>(눈덩이가 0개면 <b>2초 동안 못 움직여요</b>). <b>30초 동안 문제를 하나도 풀지 않으면 3초 동안 얼어요</b>(20초가 지나면 알려 줘요). 풀이를 <b>3초</b> 보고 다음 문제로 넘어가요.</li>
       <li>체력이 0이 되면 <b>3초 동안 꽁꽁</b> 얼어요. 꽁꽁인 동안에도 문제는 풀 수 있고, 풀리면 체력 100으로 다시 뛰어요(2초 보호).</li>
       <li>점수 = 맞힌 눈덩이 <b>×10</b> + 꽁꽁 만든 친구 <b>×30</b>. 4분이 끝나면 점수 순으로 순위를 정해요.</li>
       <li><b>3문제를 연달아</b> 맞히면 아이템! 🛡️ 얼음 방패 +40 · ☕ 핫초코 회복 +40 · 🌕 왕눈덩이 3개(피해 ×1.5) · 🛷 썰매 신발 8초</li>
@@ -862,7 +862,8 @@ var COLD = ['#a3163c', '#1650a8', '#13784a', '#a87b00', '#5f2fb8', '#b2541a'];
 var DOT = ['🔴', '🔵', '🟢', '🟡', '🟣', '🟠'];
 var AMMO = { 1: 2, 2: 3, 3: 4 }, AMMO_MAX0 = 12, AMMO_START0 = 2;   // 맞히면 생기는 눈덩이(개)
 var QTAG = { 1: '⭐ 외항·내항 · ⚪+2', 2: '⭐⭐ 비례식의 성질 · ⚪+3', 3: '⭐⭐⭐ 도전 · ⚪+4' };
-var STUN_T = 2, WRONG_LOCK = 3, OK_SHOW = 0.6, STREAK_ITEM = 3;
+var STUN_T = 2, IDLE_T = 30, IDLE_FZ = 3, IDLE_WARN = 20,   // 30초 동안 문제를 안 풀면 3초 얼음(20초부터 알려 줘요)
+  WRONG_LOCK = 3, OK_SHOW = 0.6, STREAK_ITEM = 3;
 var TW = 120, TH = 15, TILE = 16;                                     // 눈밭: 가로 120칸 × 세로 15칸
 var PW = 0.7, PH = 1.4;                                               // 몸 크기(칸)
 var SPEED = 7.2, SLED_K = 1.45, SLED_T = 8, BIG_N = 3;
@@ -1262,7 +1263,7 @@ function renderQ() {
 function answer(j) {
   if (!G || G.over || G.ending || !G.q || G.q.done || !active(G.me)) return;
   var p = me(), x = G.q.x, ok = j === x[3], btns = $('#qOpts').querySelectorAll('button');
-  G.q.done = true;
+  G.q.done = true; G.lastAns = Math.max(Date.now(), G.start); G.idleWarned = false;
   btns.forEach(function (b, k) { b.disabled = true; if (k === x[3]) b.classList.add('ok'); else if (k === j) b.classList.add('no'); });
   if (ok) {
     G.ok++; p.ok++; p.streak++;
@@ -1479,7 +1480,7 @@ function respawn(p) {
 
 function update(dt) {
   var now = Date.now(), p = me();
-  G.pl.forEach(function (q) { if (q.cd > 0) q.cd -= dt; if (q.throwT > 0) q.throwT -= dt; if (q.sled > 0) q.sled -= dt; if (q.stun > 0) q.stun -= dt; });
+  G.pl.forEach(function (q) { if (q.cd > 0) q.cd -= dt; if (q.throwT > 0) q.throwT -= dt; if (q.sled > 0) q.sled -= dt; if (q.stun > 0) q.stun -= dt; if (q.idle > 0) q.idle -= dt; });
   if (G.mode === 'net') interpPeers(dt);
   stepStorm(dt);
   if (now < G.start) {
@@ -1496,8 +1497,9 @@ function update(dt) {
     if (active(G.me)) {
       if (canPlay(G.me)) {
         var jk = !!jumpKey(), jp = jumpQ || (jk && !G.jHeld); G.jHeld = jk; jumpQ = false;
-        if (p.stun > 0) stepMove(p, 0, false, false, dt); else stepMove(p, moveInput(), jp, !!downKey(), dt);
-        if (!(p.stun > 0) && (keys.Space || keys.KeyJ || fireHold)) autoThrow(p);
+        stepIdle(p, dt, now);
+        if (p.stun > 0 || p.idle > 0) stepMove(p, 0, false, false, dt); else stepMove(p, moveInput(), jp, !!downKey(), dt);
+        if (!(p.stun > 0) && !(p.idle > 0) && (keys.Space || keys.KeyJ || fireHold)) autoThrow(p);
       } else { p.moving = false; p.vx = 0; p.vy = Math.max(-FALL_MAX, p.vy - GRAV * dt); moveBody(p, dt); }
       tickQ();
     }
@@ -1541,6 +1543,19 @@ function stepStorm(dt) {
     }
     if (Math.random() < dt * 8) G.parts.push({ x: pxOf(q) + rnd(-0.4, 0.4), y: pyOf(q) + rnd(0.2, 1.3), vx: st.dir * 6, vy: 0.5, life: 0.4, col: '#bfefff' });
   });
+}
+// 30초 동안 문제를 하나도 안 풀면(맞히든 틀리든) 3초 동안 얼어요. 시간은 실제 시계로 세요(꽁꽁이 풀리자마자 얼 수도 있어요).
+function stepIdle(p, dt, now) {
+  if (!G.lastAns) G.lastAns = now;
+  if (p.idle > 0) { G.idleLeft = null; return; }
+  var left = IDLE_T - (now - G.lastAns) / 1000;
+  G.idleLeft = left;
+  if (left <= IDLE_T - IDLE_WARN && !G.idleWarned) { G.idleWarned = true; toast('⏳ 10초 안에 문제를 풀지 않으면 3초 동안 얼어요!', 2.2); beep('tick'); }
+  if (left <= 0) {
+    p.stun = 0; p.idle = IDLE_FZ; p.vx = 0; G.lastAns = now + IDLE_FZ * 1000; G.idleWarned = false; G.idleLeft = null;
+    splat(p.x, p.y + 0.8, '#bfefff', 16); beep('hit');
+    toast('🧊 30초 동안 문제를 안 풀어서 3초 동안 얼었어요!', 2.5);
+  }
 }
 function stepParts(dt) {
   G.fx = G.fx.filter(function (e) { e.life -= dt; e.y += 1.4 * dt; return e.life > 0; });
@@ -1639,7 +1654,7 @@ function hud(force) {
   setTxt('#hpTxt', '❤️ ' + hp + (sh ? '  🛡️ ' + sh : ''));
   setTxt('#ammoN', String(p.ammo)); setTxt('#fireN', String(p.ammo));
   $('#fireBtn').classList.toggle('empty', p.ammo <= 0 || p.fz);
-  setTxt('#buffs', (p.big > 0 ? '🌕×' + p.big + ' ' : '') + (p.sled > 0 ? '🛷' + Math.ceil(p.sled) : '') + (chilled(p) ? ' 🥶느림' : '') + (p.stun > 0 ? ' 😵' + Math.ceil(p.stun) : '') + (sNow() < S.sf[G.me] && !p.fz ? ' ✨보호' : ''));
+  setTxt('#buffs', (p.big > 0 ? '🌕×' + p.big + ' ' : '') + (p.sled > 0 ? '🛷' + Math.ceil(p.sled) : '') + (chilled(p) ? ' 🥶느림' : '') + (p.stun > 0 ? ' 😵' + Math.ceil(p.stun) : '') + (p.idle > 0 ? ' 🧊' + Math.ceil(p.idle) : G.idleLeft != null && G.idleLeft <= IDLE_T - IDLE_WARN ? ' ⏳문제 ' + Math.ceil(G.idleLeft) + '초' : '') + (sNow() < S.sf[G.me] && !p.fz ? ' ✨보호' : ''));
   $('#hurt').style.opacity = G.flash > 0 ? String(clamp(G.flash / 0.35, 0, 1)) : '0';
   $('#chill').style.opacity = chilled(p) ? '1' : '0';
   var fd = G.feed.map(function (e) { return '<div>' + esc(e.s) + '</div>'; }).join('');
@@ -1862,14 +1877,15 @@ var View = {
       var fr;
       var air = localP(q) ? !q.onG : Math.abs(q.vy) > 1.5;
       if (q.throwT > 0) fr = 8; else if (air) fr = q.vy > 0 ? 6 : 7; else if (q.moving) fr = 2 + (Math.floor(q.walk * 2) % 4); else fr = (Math.floor(Date.now() / 500) % 2);
-      if (fz) fr = 0;
+      var ifz = !fz && (localP(q) ? q.idle > 0 : (q.f & 32));
+      if (fz || ifz) fr = 0;
       if (safe && (Math.floor(Date.now() / 90) % 2)) x.globalAlpha = 0.45;
       x.save(); x.translate(X, Y - KH + 1);
       if (f < 0) { x.scale(-1, 1); x.drawImage(kidSheet(q.i), fr * KW, 0, KW, KH, -KW / 2, 0, KW, KH); }
       else x.drawImage(kidSheet(q.i), fr * KW, 0, KW, KH, -KW / 2, 0, KW, KH);
       x.restore(); x.globalAlpha = 1;
       if (q.sled > 0 && q.moving && (self.frame & 3) === 0) g.parts.push({ x: pxOf(q) - f * 0.3, y: pyOf(q) + 0.1, vx: -f * 2, vy: 1, life: 0.3, col: '#ffffff' });
-      if (fz) {
+      if (fz || ifz) {
         x.fillStyle = 'rgba(160,225,255,.55)'; x.fillRect(X - 9, Y - 25, 18, 25);
         x.fillStyle = '#e8fbff'; x.fillRect(X - 9, Y - 25, 18, 1); x.fillRect(X - 9, Y - 25, 1, 25); x.fillRect(X - 6, Y - 22, 2, 6); x.fillRect(X - 3, Y - 22, 1, 3);
         x.fillStyle = '#5fb8e6'; x.fillRect(X + 8, Y - 25, 1, 25); x.fillRect(X - 9, Y - 1, 18, 1);
@@ -2056,7 +2072,7 @@ function startSync(code) {
   syncTick();
 }
 function stopSync() { if (Sync) { Sync.stopped = true; clearTimeout(Sync.timer); } Sync = null; }
-function flagsOf(p) { return (p.sled > 0 ? 2 : 0) | (p.big > 0 ? 4 : 0) | (p.onG ? 0 : 8) | (p.stun > 0 ? 16 : 0); }
+function flagsOf(p) { return (p.sled > 0 ? 2 : 0) | (p.big > 0 ? 4 : 0) | (p.onG ? 0 : 8) | (p.stun > 0 ? 16 : 0) | (p.idle > 0 ? 32 : 0); }
 function cm(v) { return Math.round(v * 100); }
 function syncTick() {
   var S = Sync; if (!S || S.stopped) return;
